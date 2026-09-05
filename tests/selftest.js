@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildWhitelist, verifyOutput, splitSections, listItems, kvItems, fitmentLines, para, buildHtml, buildPrompt, buildResult } from "../lib/listing.js";
+import { buildWhitelist, verifyOutput, splitSections, listItems, kvItems, fitmentLines, para, inferCategoryPath, buildHtml, buildPrompt, buildResult } from "../lib/listing.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG = JSON.parse(
@@ -475,5 +475,75 @@ ok("Z3: bullets are real copy (no echo / category path)", rZ3.bullets.every((b) 
 ok("Z3: HTML Features block has 5 bullets", /<h3>Features<\/h3>\s*<ul>([\s\S]*?)<\/ul>/.test(rZ3.html) && (rZ3.html.match(/<h3>Features<\/h3>\s*<ul>([\s\S]*?)<\/ul>/) || ["", ""])[1].split("<li>").length - 1 === 5);
 ok("Z3: verify passes (all 3 part numbers exist in package)", rZ3.verify.hallucinated.length === 0, JSON.stringify(rZ3.verify));
 ok("Z3: section-3 body does not contain the 'Fitment' header text", !/^\s*Fitment\s*$/m.test(Z3_LLM.split("3. Fitment")[1].split("4.")[0]) || true);
+
+// [10] SKU 00740289 (Hyundai Genesis Coupe Engine Water Pump) regression.
+// Symptom (user-reported from live Vercel): the listing UI showed
+// "--- verify in the eBay Sell flow before publishing." with NO category
+// path at all. All other sections rendered fine — the model simply
+// skipped section 7 (no category line between the `7.` header and `8.`),
+// so `para(sec[7])` returned "" and the field fell through to "-".
+// After this fix `inferCategoryPath()` recovers a real eBay Motors path
+// from Item Specifics[Type] ("Engine Water Pump" → "Engines & Engine
+// Parts > Water Pumps").
+console.log("\n[10] inferred category when model skips section 7 (SKU 00740289)");
+const WATER_PKG = `Engine Water Pump 25120-2C400 for 2010-2014 Hyundai Genesis Coupe 2.0L L4
+Fitment: 2010-2014 Hyundai Genesis Coupe Turbo
+OEM: 251202C400, 25120-2C400
+Material: Not Specified
+Type: Engine Water Pump`;
+const WATER_LLM = `1. Three Cassini-optimized titles
+* Engine Water Pump 251202C400 Fits Hyundai Genesis Coupe 2.0L 2010-2014
+* Water Pump 25120-2C400 Fits Hyundai Genesis Coupe 2.0L L4 2010-2014
+* Engine Water Pump 25120 2C400 Fits 2010-2014 Hyundai Genesis Coupe 2.0L
+2. Item Specifics
+* Brand: Unbranded
+* MPN: 251202C400
+* OEM Part Number: 251202C400
+* Interchange Part Number: 25120-2C400, 25120 2C400
+* Placement on Vehicle: Engine
+* Material: Not Specified
+* Type: Engine Water Pump
+* Warranty: Does Not Apply
+3. Fitment
+* 2010-2014 Hyundai Genesis Coupe Turbo
+4. Five bullet selling points
+* Engineered for exact OE-standard fitment on 2010-2014 Hyundai Genesis Coupe 2.0L engines.
+* Includes necessary gasket for a complete, leak-free installation and optimal cooling system integrity.
+* Designed specifically for the 2.0L L4 DOHC Turbo platform to ensure consistent coolant flow and safety.
+* Provides a precise, direct-fit replacement that eliminates the guesswork associated with aftermarket cooling components.
+5. Description first paragraph
+This premium engine water pump is precision-engineered for 2010-2014 Hyundai Genesis Coupe 2.0L L4 turbo engines, replacing OEM 25120-2C400 with a direct-fit, gasket-included assembly.
+6. Package Includes
+* 1x Engine Water Pump
+* 1x Gasket
+7. Suggested eBay category path
+8. Notes to Seller
+* The data package lists the vehicle as 'Hyundai Genesis Coupe Coupe,' which is redundant: verify if the buyer expects a specific trim level or if this is a general fitment for all 2.0L models.
+* The material is not specified in the data package, which may be a point of inquiry for customers comparing against OEM metal vs. composite impellers.`;
+const rWater = buildResult(WATER_PKG, WATER_LLM, "gemini-3.1-flash-lite", 5.9, "420/580");
+ok("Water: section 7 left empty by LLM, category still recovered (not '-')", rWater.category !== "-" && rWater.category.length > 0, `got: '${rWater.category}'`);
+ok("Water: inferred path lands in Engines & Engine Parts > Water Pumps", /Engines?\s*&\s*Engine Parts.*Water Pumps?/i.test(rWater.category), rWater.category);
+ok("Water: no category-path leakage in Package Includes", !/ebay\s*motors\s*>/i.test(rWater.package_includes.join(" ")));
+ok("Water: no category-path leakage in bullets", !rWater.bullets.some((b) => /ebay\s*motors\s*>/i.test(b)));
+ok("Water: titles all parsed (3, no fallback)", rWater.titles.length === 3, JSON.stringify(rWater.titles.map((t) => t.text)));
+ok("Water: fitment line is 2010-2014 Hyundai Genesis Coupe", /2010-2014\s+Hyundai\s+Genesis\s+Coupe/i.test(rWater.fitment), rWater.fitment);
+ok("Water: HTML escapes data-package markup", !/<script/i.test(rWater.html));
+ok("Water: verify passes (no fabricated part numbers)", rWater.verify.hallucinated.length === 0, JSON.stringify(rWater.verify));
+ok("Water: inferCategoryPath direct call also resolves Type=Engine Water Pump", inferCategoryPath([["Type", "Engine Water Pump"]]).includes("Water Pumps"));
+ok("Water: inferCategoryPath known Type ends in canonical leaf (not raw Type)", /Water Pumps?$/.test(inferCategoryPath([["Type", "Engine Water Pump"]])) && !/Engine Water Pump$/.test(inferCategoryPath([["Type", "Engine Water Pump"]])), inferCategoryPath([["Type", "Engine Water Pump"]]));
+
+// [11] Generic-Type fallback. When Item Specifics[Type] is set but does
+// not match any rule, inferCategoryPath() must still return a real eBay
+// Motors path (with the Type as the leaf) so the seller at least has the
+// correct top-level category to drill down in.
+console.log("\n[11] generic Type fallback (unknown part type)");
+ok("inferCategoryPath(Quantum Flux Capacitor) returns real path",
+   /eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Quantum Flux Capacitor/.test(
+     inferCategoryPath([["Type", "Quantum Flux Capacitor"]])
+   ),
+   inferCategoryPath([["Type", "Quantum Flux Capacitor"]])
+);
+ok("inferCategoryPath(empty specifics) returns empty string",
+   inferCategoryPath([]) === "");
 
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);

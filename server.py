@@ -290,6 +290,83 @@ def para(block: str) -> str:
     return " ".join(lines).strip()
 
 
+# Last-resort: when section 7 is empty / lost, infer a sensible eBay Motors
+# category path from Item Specifics[Type]. The model is supposed to write a
+# path itself (eBay Motors > Parts & Accessories > ...), but short data
+# packages occasionally cause it to skip sec[7] entirely — leaving the UI
+# showing "-" with no suggestion at all. This synthesises a usable default
+# so the seller at least has a starting point to verify against the eBay
+# Sell flow.
+#
+# Same rules as lib/listing.js CATEGORY_RULES — keep them in lock-step.
+_CATEGORY_RULES = [
+    # Suspension & Steering
+    (re.compile(r"\bcontrol arms?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Control Arms & Parts"),
+    (re.compile(r"\bshock absorber(s)?\b|\bshocks? (and|&) struts?\b|\bstruts?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Shocks & Struts"),
+    (re.compile(r"\bball joints?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Ball Joints"),
+    (re.compile(r"\bsway bar(s)?\b|\bstabilizer bar(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Sway Bars"),
+    (re.compile(r"\btie rod ends?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Tie Rod Ends"),
+    # Engine & drivetrain
+    (re.compile(r"\bwater pump(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Engines & Engine Parts > Water Pumps"),
+    (re.compile(r"\bengine valve cover(s)?\b|\bvalve cover(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Engines & Engine Parts > Engine Blocks & Parts > Valve Covers"),
+    (re.compile(r"\boil pan(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Engines & Engine Parts > Oil Pans"),
+    (re.compile(r"\bhead gasket(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Engines & Engine Parts > Gaskets & Seals"),
+    (re.compile(r"\bspark plug(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Ignition Systems > Spark Plugs"),
+    (re.compile(r"\bignition coil(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Ignition Systems > Ignition Coils"),
+    (re.compile(r"\bair filter(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Air Filters"),
+    (re.compile(r"\bmass air flow\b|\bmaf sensor(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Mass Air Flow Meters"),
+    (re.compile(r"\bthrottle body\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Throttle Bodies"),
+    (re.compile(r"\bfuel pump(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Fuel Pumps"),
+    (re.compile(r"\bfuel injector(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Fuel Injectors"),
+    # Electrical & Lighting
+    (re.compile(r"\balternator(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Electrical & Lighting > Alternators"),
+    (re.compile(r"\bstarter motor(s)?\b|\bstarter(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Electrical & Lighting > Starters"),
+    (re.compile(r"\bheadlight(s)? assembly\b|\bheadlight(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Lighting & Lamps > Headlights"),
+    (re.compile(r"\btail light(s)?\b|\btaillight(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Lighting & Lamps > Tail Lights"),
+    (re.compile(r"\bfog light(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Lighting & Lamps > Fog Lights"),
+    # Exterior
+    (re.compile(r"\bside mirror(s)?\b|\bdoor mirror(s)?\b|\bpower mirror(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Exterior Parts & Accessories > Mirrors"),
+    (re.compile(r"\bbumper cover(s)?\b|\bfront bumper\b|\brear bumper\b|\bbumper\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Exterior Parts & Accessories > Bumpers"),
+    (re.compile(r"\bfender(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Exterior Parts & Accessories > Fenders"),
+    (re.compile(r"\bhood(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Exterior Parts & Accessories > Hoods"),
+    (re.compile(r"\bradiator(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Cooling System > Radiators"),
+    (re.compile(r"\bthermostat(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Cooling System > Thermostats"),
+    (re.compile(r"\bradiator hose(s)?\b|\bhose(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Cooling System > Hoses"),
+    (re.compile(r"\bradiator fan(s)?\b|\bfan clutch(es)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Cooling System > Fan Clutches"),
+    (re.compile(r"\bradiator support(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Cooling System > Radiator Supports"),
+    (re.compile(r"\bconvertible top(s)?\b|\brear window(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Exterior Parts & Accessories > Convertible Tops & Parts"),
+    (re.compile(r"\brunning board(s)?\b|\bside step(s)?\b|\bnerf bar(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Exterior Parts & Accessories > Running Boards & Step Bars"),
+    (re.compile(r"\btonneau cover(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Exterior Parts & Accessories > Tonneau Covers"),
+    (re.compile(r"\bwheel bearing(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Wheel Bearings"),
+    # Interior
+    (re.compile(r"\bdoor handle(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Door Handles"),
+    (re.compile(r"\bdoor armrest(s)?\b|\barmrest(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Armrests"),
+    (re.compile(r"\bwindow regulator(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Window Regulators"),
+    (re.compile(r"\bwindow motor(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Window Motors"),
+    (re.compile(r"\bpower window switch(es)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Window Switches"),
+    (re.compile(r"\bsun visor(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Sun Visors"),
+    # Brakes
+    (re.compile(r"\bbrake pad(s)?\b|\bbrake rotor(s)?\b|\bbrake caliper(s)?\b|\bbrake\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Brakes & Brake Parts"),
+    # Wheels
+    (re.compile(r"\balloy wheel(s)?\b|\bwheel(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Wheels"),
+]
+
+
+def _infer_category_path(specifics):
+    spec_map = {k: v for k, v in (specifics or [])}
+    type_val = (spec_map.get("Type") or "").strip()
+    if not type_val:
+        return ""
+    t = type_val.lower()
+    for rx, path in _CATEGORY_RULES:
+        if rx.search(t):
+            return path
+    # Conservative last-resort: a real (if generic) eBay Motors path that
+    # the seller can drill down in the Sell flow. Better than "-" because
+    # at least it lands in the right top-level category tree.
+    return f"eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > {type_val}"
+
+
 _BARE_YEAR_RE = re.compile(
     r"^\s*\(?(?:19|20)\d{2}\s*[-–—]\s*(?:(?:19|20)\d{2}|\d{2})\s*$")
 
@@ -601,7 +678,11 @@ def api_generate(pkg_text: str) -> dict:
                    if not _looks_like_echo(b) and not _is_category_path(b)][:5]
     desc = para(sec.get(5, ""))
     pkg_includes = [p for p in list_items(sec.get(6, "")) if not _looks_like_echo(p) and not _is_category_path(p)]
-    category = para(sec.get(7, "")) or "-"
+    # Suggested eBay category path: model output wins, else infer from
+    # Item Specifics[Type] (see _infer_category_path). Without this fallback
+    # a short-package SKU where the model skips sec[7] renders as "-" in
+    # the UI — which gives the seller nothing to verify against.
+    category = para(sec.get(7, "")) or _infer_category_path(specifics) or "-"
     notes = [n for n in list_items(sec.get(8, "")) if not _looks_like_echo(n) and not _is_category_path(n)]
     ver = verify_output(pkg_text, title, llm_text)
     if not titles:
