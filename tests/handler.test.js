@@ -59,6 +59,16 @@ try {
   });
   ok("short package -> 400", r.status === 400);
 
+  // Noise-only package (~70 chars, no part numbers / fitment) must be rejected
+  // before any Gemini call — reproduces the "Listing engine is busy" 502 from a
+  // two-line supplier note with no real specs.
+  const NOISE = "Instruction is not included. Professional installation is recommended.";
+  r = await onRequestPost({
+    request: req({ text: NOISE }),
+    env: { GEMINI_API_KEY: "k" },
+  });
+  ok("noise-only ~70-char package -> 400 (not 502 busy)", r.status === 400);
+
   r = await onRequestPost({
     request: req("not json{"),
     env: { GEMINI_API_KEY: "k" },

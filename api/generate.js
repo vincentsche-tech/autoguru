@@ -115,11 +115,11 @@ export default async function handler(req, res) {
 
   const body = typeof req.body === "string" ? safeJson(req.body) : req.body;
   const pkgText = String((body && body.text) || "").trim();
-  if (pkgText.length < 40) {
+  if (pkgText.length < 80) {
     return res.status(400).json({
       ok: false,
       error:
-        "That data package looks too short — paste the whole supplier listing (title, part numbers, fitment, description).",
+        "That data package looks too short — paste the whole supplier listing, including part numbers (OEM / Interchange) and vehicle fitment / application list. A few lines of real specs lets the engine build a usable listing.",
     });
   }
   const text = pkgText.slice(0, MAX_TEXT);

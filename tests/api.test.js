@@ -102,6 +102,14 @@ try {
   await handler(req({ body: { text: "short" } }), r);
   ok("short package -> 400", r.statusCode === 400);
 
+  // Noise-only package (~70 chars, no part numbers / fitment) must be rejected
+  // before any Gemini call — reproduces the "Listing engine is busy" 502 from a
+  // two-line supplier note with no real specs.
+  const NOISE = "Instruction is not included. Professional installation is recommended.";
+  r = res();
+  await handler(req({ body: { text: NOISE } }), r);
+  ok("noise-only ~70-char package -> 400 (not 502 busy)", r.statusCode === 400);
+
   r = res();
   await handler(req({ body: "not-json{" }), r);
   ok("malformed body -> 400", r.statusCode === 400);

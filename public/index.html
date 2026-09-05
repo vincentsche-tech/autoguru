@@ -137,7 +137,7 @@ footer a:hover{color:var(--acc)}
   </div>
 
   <div class="card tool" data-page-node-id="FzdMrHUT14o1te4wxObTtU">
-    <h2 data-page-node-id="iG4hySfJ5ofn4Nan957Ej5">Generate your listing <span class="ver">Listing Engine v2.3</span></h2>
+    <h2 data-page-node-id="iG4hySfJ5ofn4Nan957Ej5">Generate your listing <span class="ver">Listing Engine v2.4</span></h2>
     <!-- MVP2 done: 前端接 /api/generate（server.py 本地 worker / Cloudflare Pages Function 同契约） -->
     <label for="pkg">Paste your data package</label>
     <textarea id="pkg" placeholder="Copy the whole supplier listing — product name, OE / interchange numbers, fitment / application list, description, package contents — and paste it here. The engine splits it into fields itself. Works with any supplier or distributor format."></textarea>
@@ -152,7 +152,7 @@ footer a:hover{color:var(--acc)}
     <div id="err" class="verify" hidden style="background:#fef2f2;border-color:#fecaca"><strong id="err-title">Engine error</strong><p id="errmsg" style="margin-top:6px"></p></div>
 
     <div id="report" class="report" hidden>
-      <div class="rep-head"><span class="rep-title">Listing Report</span><span class="ver" id="r-meta">EbayAutoGuru Engine v2.3</span></div>
+      <div class="rep-head"><span class="rep-title">Listing Report</span><span class="ver" id="r-meta">EbayAutoGuru Engine v2.4</span></div>
 
       <h3>Titles</h3>
       <div id="r-titles"></div>
@@ -292,7 +292,7 @@ footer a:hover{color:var(--acc)}
   });
 
   function render(j){
-    var meta='EbayAutoGuru Engine v2.3 · '+j.seconds+'s';
+    var meta='EbayAutoGuru Engine v2.4 · '+j.seconds+'s';
     if(typeof j.remaining==='number')meta+=' · '+j.remaining+' free listing'+(j.remaining===1?'':'s')+' left today';
     document.getElementById('r-meta').textContent=meta;
     var rt=document.getElementById('r-titles');rt.innerHTML='';

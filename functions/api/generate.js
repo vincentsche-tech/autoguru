@@ -121,12 +121,12 @@ export async function onRequestPost({ request, env }) {
   }
 
   const pkgText = String((payload && payload.text) || "").trim();
-  if (pkgText.length < 40) {
+  if (pkgText.length < 80) {
     return json(
       {
         ok: false,
         error:
-          "That data package looks too short — paste the whole supplier listing (title, part numbers, fitment, description).",
+          "That data package looks too short — paste the whole supplier listing, including part numbers (OEM / Interchange) and vehicle fitment / application list. A few lines of real specs lets the engine build a usable listing.",
       },
       400
     );
