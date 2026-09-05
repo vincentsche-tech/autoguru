@@ -88,10 +88,12 @@ _ECHO_PATTERNS = [
     r"\bbenefit[- ]driven\b",
     r"\bno keyword stuffing\b",
     r"\boutput only sections\b",
+    r"\boutput results? only\b",
     r"\bdo not invent\b",
     r"\bnever add\b",
     r"\bdo not wrap\b",
     r"\bdo not omit\b",
+    r"\bdo not merge\b",
     r"\binclude warranty only if\b",
     r"\bsuggested ebay category path\b",
     r"\bnotes to seller\b",
@@ -102,13 +104,48 @@ _ECHO_PATTERNS = [
     r"\bmaximum?\s*\d+\s*chars?\b",
     r"\btitle case\b",
     r"\bno decorative punctuation\b",
+    # Section-name echoes (v1.3 prompt uses these as section titles).
+    r"\bselling points?\b",
+    r"\bitem specifics?\b",
+    r"\bproduct description\b",
+    r"\bfitment type\b",
+    r"\blike a deterministic engine\b",
+    r"\bspecifications?\b",
+    # Length / format rules that the model sometimes echoes back.
+    r"\bstyle each entry\b",
+    r"\bsections? 1\s*[-–]\s*8\b",
 ]
 _ECHO_RE = re.compile("|".join(_ECHO_PATTERNS), re.IGNORECASE)
 
 
-def _looks_like_echo(ln: str) -> bool:
-    if len(ln) < 12:
+def _is_category_path(s: str) -> bool:
+    """Detect an eBay Motors category path leaked into a non-category field."""
+    if not s:
         return False
+    if re.search(r"\bebay\s*motors\s*>", s, re.IGNORECASE):
+        return True
+    # `>`-separated, contains "Parts & Accessories", > 30 chars.
+    if ">" in s and re.search(r"parts\s*(&|and)?\s*accessories", s, re.IGNORECASE) and len(s) > 30:
+        return True
+    return False
+
+
+def _looks_like_echo(ln: str) -> bool:
+    if not ln or len(ln) < 4:
+        return True
+    # Reject lines that are essentially just a section header name (e.g.
+    # "Selling Points", "Item Specifics").
+    if len(ln.split()) <= 3:
+        t = ln.lower().strip()
+        if (re.fullmatch(r"selling points?", t) or
+                re.fullmatch(r"item specifics?", t) or
+                re.fullmatch(r"package includes?", t) or
+                re.fullmatch(r"notes to seller", t) or
+                re.fullmatch(r"product description", t) or
+                re.fullmatch(r"suggested.*category.*path", t) or
+                re.fullmatch(r"fitment", t) or
+                re.fullmatch(r"description", t)):
+            return True
     if _ECHO_RE.search(ln):
         return True
     if '"' in ln and ":" in ln and len(ln.split()) > 12:
@@ -221,52 +258,61 @@ def fitment_lines(block: str) -> list:
     raw = (block or "").strip()
     if not raw:
         return []
+    # 1) Cleanest path: well-bulleted lines, each starting with a year range.
     listed = [l for l in list_items(raw) if re.match(r"^\s*\(?(?:19|20)\d{2}\s*[-–—]\s*(?:(?:19|20)\d{2}|\d{2})\)?", l)]
-    if len(listed) >= 1:
+    if len(listed) >= 2:
         return listed
-    split = re.split(
-        r"(?=\(?\s*(?:19|20)\d{2}\s*[-–—]\s*(?:19|20)?\d{2})", raw)
-    split = [l.strip().lstrip(":;,-–— ").strip() for l in split]
-    split = [l for l in split if re.match(r"^\s*\(?(?:19|20)\d{2}\s*[-–—]", l)]
-    return split
-
-
-_TITLE_NEGATIVES = re.compile(
-    r"\boutput\b|\battribute per line\b|\bcassini-optimized\b|"
-    r"\bdescription\b|\bitem specifics\b|\bfitment\b|\bbullet\b|\bwarranty\b",
-    re.IGNORECASE,
-)
-_TITLE_PART_TYPE = re.compile(
-    r"\b(?:arm|cover|handle|switch|sensor|pump|motor|filter|headlight|taillight|"
-    r"mirror|bumper|fender|hood|grille|strut|shock|spring|control|suspension|"
-    r"brake|wheel|hose|clamp|bracket|housing|gasket|bearing|valve|relay|fuse|"
-    r"coil|alternator|starter|radiator|condenser|compressor|manifold|throttle|"
-    r"catalyst|muffler|exhaust|axle|pulley|tensioner|damper|knuckle|spindle|"
-    r"caliper|rotor|drum|liner|hub|rack|pinion|gear|lever|pedal|pad|rim|spoke|"
-    r"tire|cap|trim|molding|seal|strip|tape|bolt|screw|nut|washer|clip|pin|"
-    r"retainer|grommet|bushing|mount|engine|transmission|drive|shaft|joint|"
-    r"boot|module|computer|wiring|harness|connector|bulb|lamp|light|gauge|"
-    r"cluster|speedometer|tachometer|panel|sunroof|window|door|lock|hinge|"
-    r"trunk|lid|tailgate|hatch|spoiler|wing|deflector|guard|protector|"
-    r"trailer|hitch|coupler|ball|carrier|box|tray|liner|holder|stand|prop|"
-    r"jack|tool|kit|assembly|pair|left|right|front|rear|upper|lower|inner|"
-    r"outer|driver|passenger|side|pcs|piece)\b",
-    re.IGNORECASE,
-)
-_TITLE_HAS_OEM = re.compile(
-    r"\b[A-Z0-9]{2,}-[A-Z0-9]{2,}\b|\b\d{5,}\b|\b[A-Z]\d{4,}\b|\b(?:19|20)\d{2}\b"
-)
+    # 2) Split on `;` and on year-range boundaries. Each piece must itself
+    #    start with a year range — otherwise it is noise and discarded.
+    #    Need at least 2 rows to consider this a fitment list; otherwise fall
+    #    through to the prose split.
+    parts = re.split(r"[;\n]+", raw)
+    parts = [re.sub(r"^[\s:;,\-–—]+", "", p).strip()
+             for p in parts if re.match(r"^\s*\(?(?:19|20)\d{2}\s*[-–—]", p)]
+    if len(parts) >= 2:
+        return parts
+    # 3) Last-resort prose split: insert \n before each new year range.
+    #    The lookahead regex MUST be applied with re.split which natively
+    #    matches every position; do not use string.replace which only
+    #    substitutes the first zero-width match.
+    chunks = re.split(
+        r"(?=\(?\s*(?:19|20)\d{2}\s*[-–—]\s*(?:(?:19|20)\d{2}|\d{2}))",
+        raw)
+    chunks = [re.sub(r"^[\s:;,\-–—]+", "", c).strip()
+              for c in chunks if re.match(r"^\s*\(?(?:19|20)\d{2}\s*[-–—]", c)]
+    return chunks
 
 
 def _is_valid_title(t: str) -> bool:
     s = (t or "").strip()
-    if len(s) < 25 or len(s) > 80:
-        return False
-    if _TITLE_NEGATIVES.search(s):
+    if len(s) < 15 or len(s) > 80:
         return False
     if _looks_like_echo(s):
         return False
-    return bool(_TITLE_PART_TYPE.search(s) or _TITLE_HAS_OEM.search(s))
+    if _is_category_path(s):
+        return False
+    if not re.search(r"[a-zA-Z]", s):
+        return False
+    if re.fullmatch(r"\d+[.)]\s*", s):
+        return False
+    return True
+
+
+def fallback_title(specifics, fitment):
+    """Compose a sensible fallback title when the model emitted none (rare
+    — usually means the input data package was empty). Industry pattern:
+    <Part Type> for <Year-Range Make/Model> (<Placement>). Cap at 80 chars."""
+    type_val = next((v for k, v in (specifics or []) if k == "Type"), None)
+    place_val = next((v for k, v in (specifics or []) if k == "Placement on Vehicle"), None)
+    fm = (fitment or "")
+    year_m = re.search(r"\b(?:19|20)\d{2}\b", fm)
+    year = year_m.group(0) if year_m else ""
+    title = type_val or "Auto Part"
+    if year:
+        title += f" for {year}"
+    if place_val:
+        title += f", {place_val}"
+    return title[:80]
 
 
 # ---------- 白名单校验（与 cmd_verify 同逻辑） ----------
@@ -357,28 +403,31 @@ def api_generate(pkg_text: str) -> dict:
 
     sec = split_sections(llm_text)
     raw_titles = list_items(sec.get(1, ""))
-    titles = [t for t in raw_titles if _is_valid_title(t)][:3]
+    titles = [{"text": t, "len": len(t)} for t in raw_titles if _is_valid_title(t)][:3]
     specifics = kv_items(sec.get(2, ""))
     fit_block = sec.get(3, "")
     fit_list = fitment_lines(fit_block)
     fitment = (fit_list[0] if len(fit_list) == 1 else "; ".join(fit_list)) if fit_list else "-"
-    bullets = [b for b in list_items(sec.get(4, "")) if not _looks_like_echo(b)][:5]
+    bullets = [b for b in list_items(sec.get(4, "")) if not _looks_like_echo(b) and not _is_category_path(b)][:5]
     desc = para(sec.get(5, ""))
-    pkg_includes = [p for p in list_items(sec.get(6, "")) if not _looks_like_echo(p)]
+    pkg_includes = [p for p in list_items(sec.get(6, "")) if not _looks_like_echo(p) and not _is_category_path(p)]
     category = para(sec.get(7, "")) or "-"
-    notes = [n for n in list_items(sec.get(8, "")) if not _looks_like_echo(n)]
+    notes = [n for n in list_items(sec.get(8, "")) if not _looks_like_echo(n) and not _is_category_path(n)]
     ver = verify_output(pkg_text, title, llm_text)
-
+    if not titles:
+        synth = fallback_title(specifics, fitment)
+        if synth:
+            titles = [{"text": synth, "len": len(synth)}]
     return {
         "ok": True, "model": model, "seconds": round(secs, 1), "tokens": tokens,
-        "titles": [{"text": t, "len": len(t)} for t in titles],
+        "titles": titles,
         "specifics": specifics,
         "fitment": fitment,
         "bullets": bullets,
         "description": desc,
         "package_includes": pkg_includes,
         "category": category,
-        "html": build_html(title, fitment, bullets, desc, specifics, pkg_includes),
+        "html": build_html(titles[0]["text"] if titles else "", fitment, bullets, desc, specifics, pkg_includes),
         "notes": notes,
         "verify": ver,
     }

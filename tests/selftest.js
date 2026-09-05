@@ -163,7 +163,7 @@ const sec4 = splitSections(GLC);
 ok("GLC sections: all 8 present", Object.keys(sec4).length === 8, JSON.stringify(Object.keys(sec4)));
 ok("GLC titles: numbered 1) 2) 3) captured", listItems(sec4[1]).length === 3, JSON.stringify(listItems(sec4[1])));
 ok("GLC titles: not over 80 chars", listItems(sec4[1]).every((t) => t.length <= 80));
-ok("GLC specifics: 9 rows captured (MPN + Manufacturer Part Number merged)", kvItems(sec4[2]).length === 9, JSON.stringify(kvItems(sec4[2])));
+ok("GLC specifics: 8 rows captured (MPN + Manufacturer Part Number merged into MPN)", kvItems(sec4[2]).length === 8, JSON.stringify(kvItems(sec4[2])));
 const fits = fitmentLines(sec4[3]);
 ok("GLC fitment: bunched line sliced to 5 vehicles", fits.length === 5, JSON.stringify(fits));
 ok(
@@ -179,7 +179,7 @@ ok("GLC notes: None filtered out", listItems(sec4[8]).length === 0);
 // Full e2e through buildResult
 const rGLC = buildResult(glcPkg, GLC, "gemini-3.1-flash-lite", 4.5, "700/450");
 ok("GLC e2e: titles populated", rGLC.titles.length === 3);
-ok("GLC e2e: specifics table populated", rGLC.specifics.length === 9);
+ok("GLC e2e: specifics table populated", rGLC.specifics.length === 8);
 ok("GLC e2e: fitment has 5 vehicles", /GLC 300|GLC 350e|GLC 43 AMG|GLC 63 AMG|GLC 63 S/.test(rGLC.fitment) && rGLC.fitment.split(/;\s*/).filter(Boolean).length === 5);
 ok(
   "GLC e2e: html contains all 5 fitments",
@@ -238,10 +238,10 @@ eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior P
 * None`;
 const echoPkg = `Black Door Armrest Handle Front Right Fit for Chevy Avalanche Suburban Tahoe Cadillac Escalade GMC Yukon 1999-2006\nInterchange: 88981548 12472876 15703702\nFitment: 1999-2006 Chevy Suburban Front Right 1999-2006 Chevy Tahoe Front Right 1999-2006 Cadillac Escalade Front Right 1999-2006 Chevy Avalanche Front Right 1999-2006 GMC Yukon Front Right`;
 const rEcho = buildResult(echoPkg, ECHO, "gemini-3.1-flash-lite", 3.2, "600/500");
-ok("Echo: titles empty (model never wrote them — better than echoing the rule)", rEcho.titles.length === 0, JSON.stringify(rEcho.titles));
+ok("Echo: titles synthesised via fallback (15-80 chars, no rule echo)", rEcho.titles.length === 1 && rEcho.titles[0].len <= 80 && rEcho.titles[0].len >= 15 && !/Cover Brand|One attribute per line/i.test(rEcho.titles[0].text || ""), JSON.stringify(rEcho.titles));
 ok("Echo: specs all real eBay fields, no rule text leaking", rEcho.specifics.every(([k, v]) => /^(Brand|MPN|OEM Part Number|Interchange Part Number|Placement on Vehicle|Material|Type|Manufacturer Part Number|Fitment Type|Warranty)$/.test(k)));
 ok("Echo: no spec value is prompt instruction text", rEcho.specifics.every(([k, v]) => !/Cover Brand|One attribute per line/i.test(v)));
-ok("Echo: 9 spec rows from a 9 distinct field source", rEcho.specifics.length === 9, JSON.stringify(rEcho.specifics));
+ok("Echo: 8 spec rows from a 9-distinct-source (MPN/MPN-merged duplicate dropped)", rEcho.specifics.length === 8, JSON.stringify(rEcho.specifics));
 ok("Echo: fitment has 5 vehicles from a single bunched section", rEcho.fitment.split(/;\s*/).filter(Boolean).length === 5);
 ok("Echo: bullets contain real selling point (no rule echo)", rEcho.bullets.length >= 1 && !/benefit[- ]driven/i.test(rEcho.bullets[0] || ""));
 ok("Echo: description is plain prose, no rule text", /Door Armrest Handle|88981548/.test(rEcho.description) && !/One attribute per line|benefit[- ]driven/i.test(rEcho.description));
@@ -249,5 +249,41 @@ ok("Echo: category path surfaces Interior Door Handles", /Interior Door Handles/
 ok("Echo: notes is empty after stripping None-echo", rEcho.notes.length === 0);
 ok("Echo: verify passes (no hallucinated numbers)", rEcho.verify.hallucinated.length === 0, JSON.stringify(rEcho.verify));
 ok("Echo: html is clean of rule text", !/One attribute per line|benefit[- ]driven|Cover Brand/i.test(rEcho.html));
+
+// 98903517 — Hard Tonneau Cover regression. The model emitted no real
+// titles, dropped "Selling Points" verbatim into the bullets section, and
+// wrote the category path into the Package Includes section. None of
+// these should surface in the report.
+const TONNEAU_PKG = `Hard Tonneau Cover For 1999-2007 Chevrolet Silverado GMC Sierra 6.5' Bed Rear\nBrand: Unbranded\nMPN: MXR02FXSY\nType: Hard Tonneau Cover\nMaterial: FRP and PP Honeycomb\nFitment: 1999-2007 Chevrolet Silverado 6.5' Bed; 1999-2007 GMC Sierra 6.5' Bed`;
+const TONNEAU_LLM = `1. Three Cassini-optimized titles
+* Selling Points
+2. Item Specifics
+* Brand: Unbranded
+* MPN: MXR02FXSY
+* OEM Part Number: Does Not Apply
+* Interchange Part Number: Does Not Apply
+* Placement on Vehicle: Rear
+* Material: FRP and PP Honeycomb
+* Type: Hard Tonneau Cover
+* Fitment Type: Performance/Custom
+* Warranty: Does Not Apply
+3. Fitment
+* 1999-2007 Chevrolet Silverado 6.5' Bed
+* 1999-2007 GMC Sierra 6.5' Bed
+4. Five bullet selling points
+* Selling Points
+5. Description first paragraph
+Hard Tonneau Cover For 1999-2007 Chevrolet Silverado GMC Sierra 6.5' Bed Rear MXR02FXSY. Premium FRP and PP honeycomb construction delivers long-term durability and reliable weather protection for daily work or weekend adventure.
+6. Package Includes
+* eBay Motors > Parts & Accessories > Truck Parts & Accessories > Tonneau Covers
+7. Suggested eBay category path
+8. Notes to Seller
+* None`;
+const rTonn = buildResult(TONNEAU_PKG, TONNEAU_LLM, "gemini-3.1-flash-lite", 2.4, "200/180");
+ok("Tonneau: titles synthesised via fallback for no-OEM-no-title SKU", rTonn.titles.length >= 1 && rTonn.titles[0].text.length <= 80, JSON.stringify(rTonn.titles));
+ok("Tonneau: bullets never echo 'Selling Points'", !/selling points/i.test(rTonn.bullets.join(" ") + " " + rTonn.description));
+ok("Tonneau: Package Includes never contains a category path", !/ebay\s*motors\s*>/i.test(rTonn.package_includes.join(" ")));
+ok("Tonneau: fitment split on `;` (two rows, Chevrolet + GMC)", rTonn.fitment.split(/;\s*/).filter(Boolean).length === 2);
+ok("Tonneau: html has no category-path leakage in Package Includes section", !/>eBay Motors\s*>/i.test(rTonn.html));
 
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);
