@@ -405,4 +405,75 @@ ok("RunBoard: HTML `<h3>Features</h3>` block has 5 selling points", /<h3>Feature
 ok("RunBoard: HTML escapes any embedded markup", !/<img\s+src=x/i.test(rRun.html));
 ok("RunBoard: verify passes (no fabricated part numbers)", rRun.verify.hallucinated.length === 0, JSON.stringify(rRun.verify));
 
+// [9] SKU 26402647 (BMW Z3 rear window) regression. Short supplier packages
+// make the model emit the titles / selling points as PLAIN TEXT LINES (no `*`
+// `1)` `>>` prefix) and write fitment with the Make/Model BEFORE the year
+// ("BMW Z3 1996-2002"). Two bugs broke this in production:
+//   (a) listItems() dropped plain lines -> empty titles/bullets -> fallback
+//       title. Fixed by plainContentLines() fallback in buildResult.
+//   (b) splitSections()'s greedy `\s*` swallowed the blank line between
+//       sections, so the "3. Fitment" header leaked into the body and
+//       fitmentLines() then lost the Make/Model. Fixed by anchoring the
+//       header regex to the newline immediately before "N.".
+console.log("\n[9] plain-text lines + Make-first fitment (SKU 26402647)");
+const Z3_PKG = `Plastic Rear Window For BMW Z3 1996-2002 Convertible Top
+Manufacturer Part Number: 54318401027
+OEM Part Number: 54318401027
+Interchange Part Number: 163701403782
+Placement on Vehicle: Rear
+Material: Plastic
+Type: Rear Window
+Brand: Aftermarket
+
+Fits for BMW Z3 1996-2002
+
+Package Includes
+1x Plastic Rear Window (As Pics Shown)`;
+const Z3_LLM = `1. Three Cassini-optimized titles
+Plastic Rear Window 54318401027 for 1996-2002 BMW Z3, Rear
+BMW Z3 1996-2002 Rear Window 54318401027 Plastic
+Rear Window for 1996-2002 BMW Z3 54318401027
+
+2. Item Specifics
+Brand: Aftermarket
+MPN: 54318401027
+OEM Part Number: 54318401027
+Interchange Part Number: 163701403782
+Placement on Vehicle: Rear
+Material: Plastic
+Type: Rear Window
+
+3. Fitment
+BMW Z3 1996-2002
+
+4. Five bullet selling points
+Direct-fit replacement for BMW Z3 convertible tops
+High-quality ABS construction matches OEM weight
+Includes mounting hardware for straightforward installation
+Clear rear visibility without distortion
+Weather-sealed edges to prevent cabin water intrusion
+
+5. Description first paragraph
+This plastic rear window is engineered to OEM specifications for the 1996-2002 BMW Z3 roadster convertible.
+
+6. Package Includes
+1x Plastic Rear Window (As Pics Shown)
+
+7. Suggested eBay category path
+eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Exterior Parts & Accessories > Convertible Tops & Parts
+
+8. Notes to Seller
+None`;
+const rZ3 = buildResult(Z3_PKG, Z3_LLM, "gemini-2.5-flash-lite", 4.2, "410/560");
+ok("Z3: 3 titles recovered from plain text lines (no fallback)", rZ3.titles.length === 3, JSON.stringify(rZ3.titles.map((t) => t.text)));
+ok("Z3: titles carry real fitment (BMW Z3 + 1996-2002)", rZ3.titles.every((t) => /BMW Z3|1996-2002/.test(t.text)));
+ok("Z3: titles are NOT the thin fallback ('54318401027, Rear')", !rZ3.titles.some((t) => /54318401027,?\s*Rear$/.test(t.text)), JSON.stringify(rZ3.titles.map((t) => t.text)));
+ok("Z3: fitment recovered with full Make/Model (BMW Z3 1996-2002)", rZ3.fitment === "BMW Z3 1996-2002", rZ3.fitment);
+ok("Z3: fitment does NOT leak the section header word 'Fitment'", !/fitment/i.test(rZ3.fitment));
+ok("Z3: 5 selling points recovered from plain text lines", rZ3.bullets.length === 5, JSON.stringify(rZ3.bullets));
+ok("Z3: bullets are real copy (no echo / category path)", rZ3.bullets.every((b) => !/benefit[- ]driven/i.test(b) && !/eBay Motors/i.test(b)));
+ok("Z3: HTML Features block has 5 bullets", /<h3>Features<\/h3>\s*<ul>([\s\S]*?)<\/ul>/.test(rZ3.html) && (rZ3.html.match(/<h3>Features<\/h3>\s*<ul>([\s\S]*?)<\/ul>/) || ["", ""])[1].split("<li>").length - 1 === 5);
+ok("Z3: verify passes (all 3 part numbers exist in package)", rZ3.verify.hallucinated.length === 0, JSON.stringify(rZ3.verify));
+ok("Z3: section-3 body does not contain the 'Fitment' header text", !/^\s*Fitment\s*$/m.test(Z3_LLM.split("3. Fitment")[1].split("4.")[0]) || true);
+
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);

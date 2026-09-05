@@ -53,7 +53,12 @@ def split_sections(text: str) -> dict:
     # 误判成 header。约束：数字+句号+空白+大写字母。
     # 与 lib/listing.js 完全对齐：headerStart 存 header 行起始 \n 位置，
     # body 结束于下一节 header 起始 \n 之前（绝不把下一节 header 文字吃进本节）。
-    re_sec = re.compile(r"(?:^|\n)\s*(?:[*#`]+)?\s*\b([1-8])\.[ \t]+(?=[A-Z])")
+    # NB: every `\s*` in this regex is intentionally `[ \t]*` (spaces/tabs
+    # only, NOT newlines). A greedy `\s*` would swallow the blank line(s)
+    # between sections, landing m.start() on the newline *before* the blank
+    # line and shifting every body start so the section header text itself
+    # ("3. Fitment") gets included in the body. Mirrors lib/listing.js.
+    re_sec = re.compile(r"(?:^|\n)[ \t]*(?:[*#`]+)?[ \t]*\b([1-8])\.[ \t]+(?=[A-Z])")
     header_start = []
     for m in re_sec.finditer(src):
         num = int(m.group(1))
@@ -226,6 +231,26 @@ def list_items(block: str) -> list:
     return out
 
 
+def plain_content_lines(block: str, min_len: int, max_len: int) -> list:
+    """Fallback when list_items() yields nothing — some models emit section
+    content as plain prose lines (no `* 1) >>` prefix) for short packages.
+    Recovers genuine lines that aren't echoes / category paths / lone headers.
+    Mirrors plainContentLines() in lib/listing.js."""
+    out = []
+    for raw in block.splitlines():
+        ln = raw.strip()
+        if not ln or ln.upper() == "NONE":
+            continue
+        if len(ln) < min_len or len(ln) > max_len:
+            continue
+        if len(ln.split()) == 1 and ln.endswith(":"):
+            continue
+        if _looks_like_echo(ln) or _is_category_path(ln):
+            continue
+        out.append(ln)
+    return out
+
+
 def kv_items(block: str) -> list:
     out = []
     seen = set()
@@ -265,6 +290,34 @@ def para(block: str) -> str:
     return " ".join(lines).strip()
 
 
+_BARE_YEAR_RE = re.compile(
+    r"^\s*\(?(?:19|20)\d{2}\s*[-–—]\s*(?:(?:19|20)\d{2}|\d{2})\s*$")
+
+
+_STOP_MAKE_MODEL = {
+    "Fits", "Fitment", "For", "Compatible", "With", "Vehicle", "Application",
+    "Direct", "Replacement", "Type", "Make", "Model", "Year", "Parts",
+    "Accessories", "Motor", "Motors", "Car", "Truck", "Top", "Convertible",
+}
+
+
+def _make_model_from(raw: str) -> str:
+    """Up to 2 capitalised Make/Model words from surrounding text. Mirrors
+    makeModelFrom() in lib/listing.js."""
+    words = [w for w in re.split(r"[\s;,.\-–—()]+", raw)
+             if re.match(r"^[A-Z][A-Za-z0-9-]{1,}$", w)
+             and not w[0].isdigit()
+             and w not in _STOP_MAKE_MODEL]
+    return " ".join(words[:2])
+
+
+def _enrich_fitment_row(row: str, raw: str) -> str:
+    if not _BARE_YEAR_RE.match(row):
+        return row
+    mm = _make_model_from(raw)
+    return f"{mm} {row}".strip() if mm else row
+
+
 def fitment_lines(block: str) -> list:
     raw = (block or "").strip()
     if not raw:
@@ -272,7 +325,7 @@ def fitment_lines(block: str) -> list:
     # 1) Cleanest path: well-bulleted lines, each starting with a year range.
     listed = [l for l in list_items(raw) if re.match(r"^\s*\(?(?:19|20)\d{2}\s*[-–—]\s*(?:(?:19|20)\d{2}|\d{2})\)?", l)]
     if len(listed) >= 2:
-        return listed
+        return [_enrich_fitment_row(r, raw) for r in listed]
     # 2) Split on `;` and on year-range boundaries. Each piece must itself
     #    start with a year range — otherwise it is noise and discarded.
     #    Need at least 2 rows to consider this a fitment list; otherwise fall
@@ -281,7 +334,7 @@ def fitment_lines(block: str) -> list:
     parts = [re.sub(r"^[\s:;,\-–—]+", "", p).strip()
              for p in parts if re.match(r"^\s*\(?(?:19|20)\d{2}\s*[-–—]", p)]
     if len(parts) >= 2:
-        return parts
+        return [_enrich_fitment_row(r, raw) for r in parts]
     # 3) Last-resort prose split: insert \n before each new year range.
     #    The lookahead regex MUST be applied with re.split which natively
     #    matches every position; do not use string.replace which only
@@ -291,7 +344,78 @@ def fitment_lines(block: str) -> list:
         raw)
     chunks = [re.sub(r"^[\s:;,\-–—]+", "", c).strip()
               for c in chunks if re.match(r"^\s*\(?(?:19|20)\d{2}\s*[-–—]", c)]
-    return chunks
+    return [_enrich_fitment_row(r, raw) for r in chunks]
+
+
+_FIT_CUE_RE = re.compile(
+    r"(?:^|\n)\s*(?:fits\s+for|compatible\s+(?:with|for|vehicle|car|model|truck|fitment)|(?:vehicle\s+)?fitment\s+for|fitment\s*[:：]|application\s*[:：]|for\s+vehicle)\s*[:：]?\s*([^\n]+)",
+    re.IGNORECASE,
+)
+_FIT_YEAR_RE = re.compile(r"\b((?:19|20)\d{2})\s*[-–—]\s*((?:(?:19|20)\d{2})|\d{2})\b")
+
+
+def extract_pkg_fitment(pkg_text: str) -> list:
+    """Last-resort fitment extraction from the RAW data package. Mirrors
+    extractPkgFitment() in lib/listing.js so the two runtimes stay
+    byte-identical."""
+    if not pkg_text:
+        return []
+    out = []
+    seen = set()
+
+    def _push(row):
+        k = row.lower()
+        if k in seen:
+            return
+        seen.add(k)
+        out.append(row)
+
+    for m in _FIT_CUE_RE.finditer(pkg_text):
+        line = (m.group(1) or "").strip()
+        # Skip obvious non-fitment meta ("Fitment Type: Direct Replacement")
+        if re.match(r"^type\s*[:：]?", line, re.IGNORECASE):
+            continue
+        line = re.sub(r"^[\s:;,.\-–—]+", "", line)
+        line = re.sub(r"[;,\s]+$", "", line)
+        if not line:
+            continue
+        cleaned = fitment_lines(line)
+        if cleaned:
+            for row in cleaned:
+                if not re.search(r"\b[A-Z][A-Za-z0-9-]+\b", row):
+                    y = _FIT_YEAR_RE.search(line)
+                    if y:
+                        mm = _make_model_around(line, y)
+                        if mm:
+                            _push(f"{row} {mm}")
+                            continue
+                _push(row)
+            continue
+        y = _FIT_YEAR_RE.search(line)
+        if not y:
+            continue
+        end_year = y.group(2)
+        if len(end_year) == 2:
+            end_year = "20" + end_year
+        year_range = f"{y.group(1)}-{end_year}"
+        mm = _make_model_around(line, y)
+        _push(f"{year_range} {mm}".strip() if mm else year_range)
+    return out
+
+
+def _make_model_around(line: str, year_match) -> str:
+    """Pull up to 2 capitalised words around the year range as Make/Model.
+    Mirrors _makeModelAround() in lib/listing.js."""
+    before = line[: year_match.start()].strip()
+    after = line[year_match.end():].strip()
+
+    def _cap(s):
+        return " ".join(
+            w for w in re.split(r"\s+", s)
+            if re.match(r"^[A-Z][A-Za-z0-9-]+$", w)
+        )[:80]
+
+    return (_cap(before) + " " + _cap(after)).strip()
 
 
 def _is_valid_title(t: str) -> bool:
@@ -462,12 +586,19 @@ def api_generate(pkg_text: str) -> dict:
 
     sec = split_sections(llm_text)
     raw_titles = list_items(sec.get(1, ""))
-    titles = [{"text": t, "len": len(t)} for t in raw_titles if _is_valid_title(t)][:3]
+    # If the model wrote titles as plain (un-bulleted) lines, recover them.
+    title_pool = raw_titles if raw_titles else plain_content_lines(sec.get(1, ""), 15, 80)
+    titles = [{"text": t, "len": len(t)} for t in title_pool if _is_valid_title(t)][:3]
     specifics = kv_items(sec.get(2, ""))
     fit_block = sec.get(3, "")
     fit_list = fitment_lines(fit_block)
+    if not fit_list:
+        fit_list = extract_pkg_fitment(pkg_text)
     fitment = (fit_list[0] if len(fit_list) == 1 else "; ".join(fit_list)) if fit_list else "-"
     bullets = [b for b in list_items(sec.get(4, "")) if not _looks_like_echo(b) and not _is_category_path(b)][:5]
+    if not bullets:
+        bullets = [b for b in plain_content_lines(sec.get(4, ""), 8, 200)
+                   if not _looks_like_echo(b) and not _is_category_path(b)][:5]
     desc = para(sec.get(5, ""))
     pkg_includes = [p for p in list_items(sec.get(6, "")) if not _looks_like_echo(p) and not _is_category_path(p)]
     category = para(sec.get(7, "")) or "-"
