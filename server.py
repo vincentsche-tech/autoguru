@@ -311,6 +311,7 @@ _CATEGORY_RULES = [
     (re.compile(r"\bball joints?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Ball Joints"),
     (re.compile(r"\bsway bar(s)?\b|\bstabilizer bar(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Sway Bars"),
     (re.compile(r"\btie rod ends?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Tie Rod Ends"),
+    (re.compile(r"\bpower\s+steering\s+pump(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Steering & Suspension > Power Steering Pumps"),
     # Engine & drivetrain
     (re.compile(r"\bwater pump(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Engines & Engine Parts > Water Pumps"),
     (re.compile(r"\bengine valve cover(s)?\b|\bvalve cover(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Engines & Engine Parts > Engine Blocks & Parts > Valve Covers"),
@@ -740,6 +741,7 @@ _PART_TYPE_KEYWORDS = [
     [re.compile(r"\bmass\s+air\s+flow\b|\bmaf\s+sensor(s)?\b", re.I), "Mass Air Flow Sensor"],
     [re.compile(r"\bthrottle\s+body\b", re.I), "Throttle Body"],
     [re.compile(r"\bfuel\s+pump\b", re.I), "Fuel Pump"],
+    [re.compile(r"\bpower\s+steering\s+pump\b", re.I), "Power Steering Pump"],
     [re.compile(r"\bfuel\s+injector(s)?\b", re.I), "Fuel Injector"],
     [re.compile(r"\bclutch\s+kit(s)?\b|\bclutch\s+disc(s)?\b|\bpressure\s+plate(s)?\b|\brelease\s+bearing(s)?\b|\bclutch\b", re.I), "Clutch Kit"],
     [re.compile(r"\balternator(s)?\b", re.I), "Alternator"],
@@ -956,16 +958,18 @@ def api_generate(pkg_text: str) -> dict:
     # regression — the LLM emitted "<real path> — verify in the eBay Sell
     # flow before publishing." which the previous length>120 short-circuit
     # in _looks_like_category_echo() silently let through):
-    #   1. LLM output wins if non-echo.
-    #   2. Even when non-echo, strip a trailing echo suffix via
-    #      _strip_category_echo_tail() so the leading real path survives.
-    #   3. Fall through to _infer_category_path() from Item Specifics[Type].
+    #   1. Try _strip_category_echo_tail() FIRST — this handles the
+    #      "hybrid" case where the LLM wrote "<real path> — verify ...".
+    #      SKU 20-282P1 regression (Sept 2026): the previous code used
+    #      `_looks_like_category_echo` to gate stripping, but the LLM's
+    #      tail ("— verify in the eBay Sell flow before publishing.")
+    #      made the WHOLE string match an echo pattern, so the gate
+    #      discarded the entire string and _infer_category_path() produced
+    #      a slightly different leaf than the model's canonical path.
+    #   2. If strip returned "" (the whole line was echo), fall through
+    #      to _infer_category_path() from Item Specifics[Type].
     raw_category = para(sec.get(7, ""))
-    cleaned_category = (
-        _strip_category_echo_tail(raw_category)
-        if raw_category and not _looks_like_category_echo(raw_category)
-        else ""
-    )
+    cleaned_category = _strip_category_echo_tail(raw_category) if raw_category else ""
     category = (
         cleaned_category
         or _infer_category_path(specifics_final, pkg_text)

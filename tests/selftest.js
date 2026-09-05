@@ -1108,4 +1108,47 @@ ok("[18f] BL: HTML Specifications table lists the 7-number Interchange row",
    /Interchange Part Number/.test(rBl.html) && /F2TZ18527A/.test(rBl.html),
    rBl.html.slice(0, 400));
 
+// [19] SKU 20-282P1 (Power Steering Pump) regression. The LLM returned
+// the canonical category path WITH the trailing echo ("… > Power Steering
+// Pumps — verify in the eBay Sell flow before publishing."). The previous
+// buildResult() gated stripCategoryEchoTail() on !looksLikeCategoryEcho() —
+// but looksLikeCategoryEcho matched the tail, so the entire string was
+// discarded and the result fell through to inferCategoryPath(), which
+// produced a DIFFERENT leaf ("… > Power Steering Pumps & Steering Pumps").
+// Fix: try strip first (handles hybrid), only fall through when strip
+// returned "" (all echo). After this fix the model's canonical leaf wins.
+console.log("\n[19] hybrid echo-tail: model canonical leaf wins over infer fallback (SKU 20-282P1)");
+const PSP_HYBRID = "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Steering & Suspension > Power Steering Pumps — verify in the eBay Sell flow before publishing.";
+ok("[19a] stripCategoryEchoTail: hybrid keeps leading real path, drops '— verify ...' tail",
+   stripCategoryEchoTail(PSP_HYBRID) === "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Steering & Suspension > Power Steering Pumps",
+   stripCategoryEchoTail(PSP_HYBRID));
+ok("[19b] looksLikeCategoryEcho: hybrid IS recognised as echo (so prior gate would have discarded it — the regression we are fixing)",
+   looksLikeCategoryEcho(PSP_HYBRID) === true);
+
+// E2E: sec[7] = hybrid; model knows canonical leaf; buildResult must surface
+// that leaf (not fall through to inferCategoryPath's generic version).
+const PSP_PKG = `Power Steering Pump 20-282P1 for Ford F150 F250 Expedition Crown Victoria\nReference OE/OEM Number\n20-282P1, F65Z3A674AA, F85Z3A674AA, F85Z3A674AARM, F85Z3A674ABRM, 20282, 20-282\nMaterial: Iron\nType: Power Steering Pump`;
+const PSP_LLM = `1. Three Cassini-optimized titles
+2. Item Specifics
+3. Fitment
+4. Five bullet selling points
+5. Description first paragraph
+6. Package Includes
+7. Suggested eBay category path
+${PSP_HYBRID}
+8. Notes to Seller`;
+const rPsp = buildResult(PSP_PKG, PSP_LLM, "gemini-3.1-flash-lite", 4.2, "610/520");
+ok("[19c] PSP: category uses the model canonical leaf (Steering & Suspension > Power Steering Pumps)",
+   /Steering\s*&\s*Suspension\s*>\s*Power Steering Pumps?$/.test(rPsp.category),
+   rPsp.category);
+ok("[19c] PSP: category has NO echo tail ('— verify' / '-- verify')",
+   !/verify in the eBay Sell flow|— verify|-- verify/i.test(rPsp.category),
+   rPsp.category);
+ok("[19d] PSP: Type recovered as Power Steering Pump (round 16 keyword)",
+   rPsp.specifics.some(([k, v]) => k === "Type" && /Power Steering Pump/.test(v)),
+   JSON.stringify(rPsp.specifics));
+ok("[19d] PSP: Interchange Part Number captures 7 OE numbers",
+   rPsp.specifics.some(([k, v]) => k === "Interchange Part Number" && v.split(/,\s*/).length === 7),
+   JSON.stringify(rPsp.specifics.find(([k]) => k === "Interchange Part Number")));
+
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);
