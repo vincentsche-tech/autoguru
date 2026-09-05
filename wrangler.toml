@@ -1,0 +1,32 @@
+# EbayAutoGuru — Cloudflare Pages config
+#
+# Local dev:
+#   cp .dev.vars.example .dev.vars   # then paste your key (never committed)
+#   npx wrangler pages dev .
+#
+# Deploy:
+#   npx wrangler pages deploy . --project-name=ebayautoguru
+#   (or connect the GitHub repo — Pages builds straight from the repo root)
+
+name = "ebayautoguru"
+compatibility_date = "2026-09-05"
+
+# Static site lives in public/ — keeps server.py, tests/ and .dev.vars
+# (which holds the API key) out of the deployed asset bundle.
+# functions/ is reserved by Pages and is never served as a static file.
+pages_build_output_dir = "public"
+
+# --- Daily quota (3 free listings / IP) -------------------------------------
+# Local dev: `npx wrangler pages dev . --kv RATE_KV`
+# Production: Dashboard → Pages project → Settings → Functions →
+#             KV namespace bindings → variable name: RATE_KV
+# If RATE_KV is unbound the endpoint fails open (no quota), so a missing
+# binding degrades gracefully instead of taking the tool offline.
+# [[kv_namespaces]]
+# binding = "RATE_KV"
+# id = "paste-kv-namespace-id-after-creating-it"
+
+# --- Secrets (never in this file) -------------------------------------------
+# Production: Dashboard → Settings → Environment variables (Encrypt)
+#   GEMINI_API_KEY    your Google AI Studio key
+#   ALLOWED_ORIGINS   ebayautoguru.com,www.ebayautoguru.com   (optional)

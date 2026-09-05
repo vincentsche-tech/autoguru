@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en" data-page-node-id="c20HPihif9CuF03tsCcMZj">
+<head data-page-node-id="4t7RaM9VQxoAN3PmIDUIHW">
+<meta charset="UTF-8" data-page-node-id="nO4ZJsadA0jM5sjqLgrQjP">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="wWxyQjEqraHWP5YdMX3cbs">
+<title>Free eBay Motors Listing Generator – Titles, Item Specifics & Fitment | EbayAutoGuru</title>
+<meta name="description" content="Generate Cassini-optimized eBay Motors listings in seconds: 80-character titles, complete Item Specifics, fitment tables and compliant HTML descriptions. Built for auto-parts dropshippers. Free to start." data-page-node-id="UjjGF6O93dLEGfNme8rWuY">
+<link rel="canonical" href="https://ebayautoguru.com/" data-page-node-id="rpbcYoAhj35ZaP1XKxTl78">
+<!-- TODO: 域名确定后全局替换 ebayautoguru.com 与品牌名 -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "How does the eBay Motors listing generator work?",
+      "acceptedAnswer": {"@type": "Answer", "text": "Paste your supplier data package (product title, OEM / interchange part numbers, application list, specifications) and the tool extracts part numbers, fitment data and specifications, then generates three Cassini-optimized titles, complete Item Specifics, a fitment table and a compliant HTML description you can paste straight into eBay."}
+    },
+    {
+      "@type": "Question",
+      "name": "Are the generated titles within eBay's 80-character limit?",
+      "acceptedAnswer": {"@type": "Answer", "text": "Yes. Every title is engineered to stay at or under 80 characters, following the Part Type + OEM/Interchange + Fitment + Placement keyword structure that eBay's Cassini search engine rewards."}
+    },
+    {
+      "@type": "Question",
+      "name": "Is the HTML description compliant with eBay's ActiveContent policy?",
+      "acceptedAnswer": {"@type": "Answer", "text": "Yes. The generated description uses only eBay-allowed tags, contains no external links, no JavaScript and no active content, and is mobile-friendly."}
+    },
+    {
+      "@type": "Question",
+      "name": "Does the tool catch errors in my supplier data package?",
+      "acceptedAnswer": {"@type": "Answer", "text": "It flags suspicious points found inside your data package – such as left/right pairing conflicts, piece-count mismatches or fitment inconsistencies – as Notes to Seller so you can double-check before publishing. The tool reminds you; you stay in control of the facts."}
+    },
+    {
+      "@type": "Question",
+      "name": "How much does it cost?",
+      "acceptedAnswer": {"@type": "Answer", "text": "You can generate 3 listings per day for free. The Pro plan ($9/month) unlocks 30 listings per day, batch CSV processing and priority generation."}
+    }
+  ]
+}
+</script>
+<style>
+:root{--ink:#0f172a;--mut:#64748b;--bg:#f8fafc;--card:#fff;--acc:#2563eb;--acc2:#1d4ed8;--ok:#059669;--warn:#b45309;--line:#e2e8f0}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);line-height:1.65}
+header{background:var(--card);border-bottom:1px solid var(--line)}
+.wrap{max-width:1000px;margin:0 auto;padding:0 20px}
+.nav{display:flex;align-items:center;justify-content:space-between;height:60px}
+.logo{font-weight:800;font-size:20px;color:var(--acc);text-decoration:none}
+nav a{color:var(--mut);text-decoration:none;margin-left:20px;font-size:14px}
+nav a:hover{color:var(--acc)}
+.hero{text-align:center;padding:56px 0 40px}
+.hero h1{font-size:clamp(26px,4.5vw,40px);line-height:1.25;margin-bottom:14px}
+.hero p{color:var(--mut);max-width:640px;margin:0 auto 24px;font-size:17px}
+.badge{display:inline-block;background:#eff6ff;color:var(--acc2);font-size:13px;font-weight:600;padding:4px 12px;border-radius:999px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px}
+.tool{max-width:760px;margin:0 auto 48px}
+.tool h2{font-size:20px;margin-bottom:12px}
+label{font-size:14px;font-weight:600;display:block;margin:14px 0 6px}
+input[type=text],textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:15px;font-family:inherit}
+textarea{min-height:120px;resize:vertical}
+button{background:var(--acc);color:#fff;border:0;border-radius:10px;padding:13px 28px;font-size:16px;font-weight:700;cursor:pointer;margin-top:16px}
+button:hover{background:var(--acc2)}
+.note{font-size:13px;color:var(--mut);margin-top:10px}
+.trust{font-size:13px;color:var(--mut);margin-top:10px;padding:8px 12px;background:#f8fafc;border-left:3px solid var(--acc);border-radius:6px}
+.trust a{color:var(--acc);text-decoration:none;font-weight:600}
+.trust a:hover{text-decoration:underline}
+.ver{display:inline-block;background:#f1f5f9;color:var(--mut);font-size:12px;font-weight:600;padding:2px 10px;border-radius:999px;vertical-align:middle;margin-left:8px}
+.calc{margin-top:18px;border:1px solid var(--line);border-radius:10px;padding:16px 18px;background:#f8fafc}
+.calc-head{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600;color:var(--ink)}
+.spinner{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.bar{height:4px;background:var(--line);border-radius:2px;margin-top:12px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .5s ease}
+.report{margin-top:20px;border:1px solid var(--line);border-radius:12px;padding:20px 22px;background:var(--card)}
+.rep-head{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.rep-title{font-weight:800;font-size:16px;letter-spacing:.4px;text-transform:uppercase}
+.report h3{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--mut);margin:18px 0 8px;display:flex;align-items:center;gap:10px}
+.trow{display:flex;justify-content:space-between;gap:14px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13.5px;padding:8px 12px;background:#f8fafc;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;overflow-wrap:anywhere}
+.trow em{flex-shrink:0;font-style:normal;color:var(--ok);font-weight:700}
+.spec{margin:0}
+.cat{font-size:14px;color:var(--ink);background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+.report pre{background:#0f172a;color:#e2e8f0;border-radius:8px;padding:14px;font-size:12.5px;line-height:1.55;overflow-x:auto;white-space:pre-wrap;word-break:break-word}
+.copy{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:4px 14px;font-size:12px;font-weight:700;cursor:pointer;margin-left:auto}
+.copy:hover{background:var(--acc2)}
+.verify{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;font-size:14px;margin-top:18px}
+.verify ul{margin:8px 0 0;padding-left:20px}
+.verify li{margin:4px 0}
+.bullets{padding-left:22px;font-size:14px}
+.bullets li{margin:6px 0}
+.bullets.bad{color:var(--warn)}
+.cmp{margin:0;border:0}
+.cmp th,.cmp td{border:0;border-bottom:1px solid var(--line);padding:11px 14px;font-size:14px}
+.cmp tr:last-child td{border-bottom:0}
+.cmp th{background:#f1f5f9;font-size:13px}
+.cmp .hl{background:#eff6ff}
+.cmp .rowlab{color:var(--mut);font-weight:600}
+.pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 10px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:#ecfdf5;color:var(--ok)}
+.pill.fix{background:#fffbeb;color:var(--warn)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:28px 0}
+.grid h3{font-size:16px;margin-bottom:6px}
+.grid .card p{color:var(--mut);font-size:14px}
+section{margin:44px 0}
+h2{font-size:24px;margin-bottom:12px}
+.steps{counter-reset:s;list-style:none}
+.steps li{counter-increment:s;position:relative;padding:0 0 18px 46px}
+.steps li::before{content:counter(s);position:absolute;left:0;top:0;width:30px;height:30px;border-radius:50%;background:var(--acc);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}
+.faq dt{font-weight:700;margin-top:14px}
+.faq dd{color:var(--mut);font-size:15px}
+footer{border-top:1px solid var(--line);margin-top:56px;padding:28px 0;background:var(--card)}
+footer .wrap{display:flex;flex-wrap:wrap;gap:12px 28px;font-size:14px;color:var(--mut)}
+footer a{color:var(--mut);text-decoration:none}
+footer a:hover{color:var(--acc)}
+@media(max-width:640px){nav a{margin-left:12px;font-size:13px}}
+</style>
+</head>
+<body data-page-node-id="EL8wXY0jlzoQbFgjY8DMC0">
+<header data-page-node-id="jLXBSWEGNhmuAiIjo7S8sH">
+  <div class="wrap nav" data-page-node-id="UAuRiYhFfi8wGcl58nLxMY">
+    <a class="logo" href="/" data-page-node-id="yKJr6GUIA0ruo0r3NLf8XA">EbayAutoGuru</a>
+    <nav data-page-node-id="mqhyNb8vATLj860RcD3c7O">
+      <a href="/ebay-title-builder.html" data-page-node-id="7RoV0rh07CYQ7KY9oNFq9T">Title Builder</a>
+      <a href="/ebay-fitment-chart-generator.html" data-page-node-id="6B06E3Z0eoUi9RAEgf6ZLz">Fitment Chart</a>
+      <a href="/ebay-motors-item-specifics-guide.html" data-page-node-id="jcy6QrhoAH910ulFXwfsWu">Item Specifics Guide</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap" data-page-node-id="J2KwbiWsuAfJmhGKRdS9SB">
+  <div class="hero" data-page-node-id="7Ec7NvkbDde4fCA5ivibAi">
+    <span class="badge" data-page-node-id="0DO7e6Qyhrp0GeFEqXFPBZ">Built for auto-parts dropshippers</span>
+    <h1 data-page-node-id="ehpWnvtymZ7Fp62KDIxEYS">Free eBay Motors Listing Generator</h1>
+    <p data-page-node-id="TBGDuyLrl1cxnuUnH5wvA6">Turn a supplier data package into a publish-ready listing: three Cassini-optimized titles, complete Item Specifics, a clean fitment table and a compliant HTML description — in seconds, not hours.</p>
+    <p class="trust">Aligned with eBay's official Best Match &amp; SEO guidance — <a href="/ebay-seo-auto-parts-guide.html">see how each official rule applies to auto parts</a>. Not affiliated with eBay Inc.</p>
+  </div>
+
+  <div class="card tool" data-page-node-id="FzdMrHUT14o1te4wxObTtU">
+    <h2 data-page-node-id="iG4hySfJ5ofn4Nan957Ej5">Generate your listing <span class="ver">Listing Engine v2.3</span></h2>
+    <!-- MVP2 done: 前端接 /api/generate（server.py 本地 worker / Cloudflare Pages Function 同契约） -->
+    <label for="pkg">Paste your data package</label>
+    <textarea id="pkg" placeholder="Copy the whole supplier listing — product name, OE / interchange numbers, fitment / application list, description, package contents — and paste it here. The engine splits it into fields itself. Works with any supplier or distributor format."></textarea>
+    <button type="button" id="go" data-page-node-id="zwwLYVKKVBygFks9JEKLli">Generate Listing Package</button>
+    <p class="note" data-page-node-id="igpKfwZnoUOYCLTMm9fwuu">Free: 3 listings per day. Suspicious points in your data (left/right conflicts, piece-count mismatches) are flagged under <strong data-page-node-id="Txgt9vCSEFQ00aQJKNzynt">Verify Before Publishing</strong> — you always confirm the facts before publishing.</p>
+
+    <div id="calc" class="calc" hidden>
+      <div class="calc-head"><span class="spinner"></span><span id="calc-msg">Engine calculating…</span></div>
+      <div class="bar"><i id="bar"></i></div>
+    </div>
+
+    <div id="err" class="verify" hidden style="background:#fef2f2;border-color:#fecaca"><strong id="err-title">Engine error</strong><p id="errmsg" style="margin-top:6px"></p></div>
+
+    <div id="report" class="report" hidden>
+      <div class="rep-head"><span class="rep-title">Listing Report</span><span class="ver" id="r-meta">EbayAutoGuru Engine v2.3</span></div>
+
+      <h3>Titles</h3>
+      <div id="r-titles"></div>
+
+      <h3>Item Specifics</h3>
+      <table class="spec" id="r-specs"></table>
+
+      <h3>Fitment</h3>
+      <p class="cat" id="r-fitment"></p>
+
+      <h3>Category (suggested)</h3>
+      <p class="cat" id="r-cat"></p>
+
+      <h3>Selling Points</h3>
+      <ul class="bullets" id="r-bullets"></ul>
+
+      <h3>HTML Description <button type="button" class="copy" id="copy">Copy</button></h3>
+      <pre id="htmlcode"></pre>
+
+      <div class="verify"><strong>⚠ Verify Before Publishing</strong><ul id="r-verify"></ul></div>
+    </div>
+  </div>
+
+  <section data-page-node-id="jRgOJdGVTPo0A9M9tSqF48">
+    <h2 data-page-node-id="6JPoAAGt9cGFMtFt4QnkbO">What you get</h2>
+    <div class="grid" data-page-node-id="abynMPEoWLlet2jzShFRTy">
+      <div class="card" data-page-node-id="UPTWWRnVMih06lhKkRO2UF"><h3 data-page-node-id="pNh1hG7XlBb0HOLJy19s8Q">3 optimized titles</h3><p data-page-node-id="6fYqwhASRoQxkFL8jdqoYr">Every title stays within eBay's 80-character limit and follows the keyword order Cassini rewards: Part Type + OEM/Interchange + Fitment + Placement.</p></div>
+      <div class="card" data-page-node-id="04ggZyH6Hh9OTD4wZ2aorN"><h3 data-page-node-id="A8mjo0IuZ6dWBLGLun8aOs">Item Specifics</h3><p data-page-node-id="gHKoKpMhL932ZHONjvAWBW">Brand, MPN, Interchange Part Number, Placement on Vehicle, Material and Type — filled only from your data package, never invented.</p></div>
+      <div class="card" data-page-node-id="Aw1sJ1qA6fPBQ4TF2sFndi"><h3 data-page-node-id="ONyfvz5pKOJQMjeXa6wXw2">Fitment table</h3><p data-page-node-id="7beg0OsW6BDdjnwEcLWJNw">Year / Make / Model / Trim parsed from the application list, so buyers can confirm compatibility at a glance and returns drop.</p></div>
+      <div class="card" data-page-node-id="LkWEnubnW9mHXJxRAUnw1u"><h3 data-page-node-id="T3c0VvnVXMTEDEjEdv0XIX">Compliant HTML</h3><p data-page-node-id="ubaCBNPAudLX7Fqh4cbJ7M">A clean, mobile-friendly description that follows eBay's ActiveContent policy: no external links, no JavaScript, no risk.</p></div>
+    </div>
+  </section>
+
+  <section data-page-node-id="bhzv14gsz2czLrKiFpDYKn">
+    <h2 data-page-node-id="o1aFu975ajGxzk1muGsoXX">How it works</h2>
+    <ol class="steps" data-page-node-id="wipPuUt3XBXFb3DoaerfeF">
+      <li data-page-node-id="cT2figgXVKJoHXJJlJ5Rcv"><strong data-page-node-id="DnhNvG2ejLQgl6o5SSjzrf">Drop in your data</strong> — paste any supplier package (title, part numbers, application list, specs) from SaleYee, any distributor, or your own catalog.</li>
+      <li data-page-node-id="1YYgKZpaDHiqwDJpRvjBX2"><strong data-page-node-id="segA4rodC4592SfymiZKaB">We extract the facts</strong> — part numbers, fitment lines, dimensions and package contents are parsed deterministically, so nothing is invented.</li>
+      <li data-page-node-id="evUUpMzCUdMAhk5hXqYtXR"><strong data-page-node-id="zPunOTCA9fRCmbOJb4CsCl">The engine writes the copy</strong> — titles, selling points and the description paragraph are generated, plus a Verify Before Publishing section that flags anything suspicious in your data.</li>
+      <li data-page-node-id="5oDKpEARixePh3k1VYuPwp"><strong data-page-node-id="JunK9BqVuvtSztID91B4x9">Copy &amp; publish</strong> — copy the listing block or download the compliant HTML description and paste it into eBay.</li>
+    </ol>
+  </section>
+
+  <section data-page-node-id="fBFz37FpDvuouqT5c0QjCT">
+    <h2 data-page-node-id="J59LOISsJxJDcDE79CzpSR">Why dropshippers switch</h2>
+    <p data-page-node-id="pPenXLc8LUaBFRx6igGfHn" style="margin-bottom:16px">Listing one auto part on eBay Motors means engineering an 80-character title, filling a dozen Item Specifics, building a fitment table and writing an ActiveContent-compliant description. Here's what that costs today:</p>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table class="cmp">
+        <tr><th></th><th>By hand</th><th>Freelancer</th><th class="hl">EbayAutoGuru</th></tr>
+        <tr><td class="rowlab">Time per listing</td><td>30–60 min</td><td>1–3 days turnaround</td><td class="hl"><strong>Seconds</strong></td></tr>
+        <tr><td class="rowlab">Cost per listing</td><td>Your evening</td><td>$9–15</td><td class="hl"><strong>Free · $9/mo unlimited</strong></td></tr>
+        <tr><td class="rowlab">Catches supplier data errors</td><td>Only if you notice</td><td>No — copies what you send</td><td class="hl"><strong>Yes — flags them</strong></td></tr>
+        <tr><td class="rowlab">ActiveContent-compliant HTML</td><td>You research the policy</td><td>Hit or miss</td><td class="hl"><strong>Always</strong></td></tr>
+        <tr><td class="rowlab">Batch CSV (coming)</td><td>One at a time</td><td>Per-order pricing</td><td class="hl"><strong>Built for it</strong></td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Your parts catalogue, at a glance</h2>
+    <p style="color:var(--mut);margin-bottom:16px">Every listing the engine produces carries its fitment status, so gaps surface before buyers do:</p>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table class="cmp">
+        <tr><th>Part</th><th>Listings</th><th>Fitment</th><th>Status</th></tr>
+        <tr><td>Front Lower Control Arm Set · F-150 15–20</td><td>1</td><td>2015–2020 Limited</td><td><span class="pill ok">✓ Live</span></td></tr>
+        <tr><td>Ceramic Brake Pads · F-150 15–22</td><td>1</td><td>47 vehicles</td><td><span class="pill ok">✓ Live</span></td></tr>
+        <tr><td>Mirror Assembly · Accord 13–17</td><td>1</td><td>Wrong eBay category</td><td><span class="pill fix">⚠ Fix needed</span></td></tr>
+        <tr><td>Radiator · Civic 06–11</td><td>1</td><td>3 exclusions flagged</td><td><span class="pill fix">⚠ Review</span></td></tr>
+      </table>
+    </div>
+    <p style="font-size:13px;color:var(--mut);margin-top:10px">Illustrative view — batch catalogue management ships with the Pro plan.</p>
+  </section>
+
+  <section data-page-node-id="vcJF7kA4kKEuFZULrEhjfh">
+    <h2 data-page-node-id="Z5cFWbhHV3xUrVORvx1hWF">Frequently asked questions</h2>
+    <dl class="faq" data-page-node-id="j0wkfnyKsHOcJGM6iEUg5r">
+      <dt data-page-node-id="8qsflI71Zd3ENXBwxYw2iC">How does the eBay Motors listing generator work?</dt>
+      <dd data-page-node-id="QOq0mP4NZ1VbjpmGeC2oQl">Paste your supplier data package (product title, OEM / interchange part numbers, application list, specifications) and the tool extracts part numbers, fitment data and specifications, then generates three Cassini-optimized titles, complete Item Specifics, a fitment table and a compliant HTML description you can paste straight into eBay.</dd>
+      <dt data-page-node-id="eLQBe9X5572YFLEBKaWtiG">Are the generated titles within eBay's 80-character limit?</dt>
+      <dd data-page-node-id="kf9FBjqtpNzbQhWLOIKhTy">Yes. Every title is engineered to stay at or under 80 characters, following the Part Type + OEM/Interchange + Fitment + Placement keyword structure that eBay's Cassini search engine rewards.</dd>
+      <dt data-page-node-id="QGtGr7NpgAOEcTnS5gTPus">Is the HTML description compliant with eBay's ActiveContent policy?</dt>
+      <dd data-page-node-id="CPOiDx2vGX6ayO9mZ1tYfi">Yes. The generated description uses only eBay-allowed tags, contains no external links, no JavaScript and no active content, and is mobile-friendly.</dd>
+      <dt data-page-node-id="xEA9amQUHHDfw1fVjsOfTM">Does the tool catch errors in my supplier data package?</dt>
+      <dd data-page-node-id="PkM4e6ifnQMUmIskdq8Iir">It flags suspicious points found inside your data package — such as left/right pairing conflicts, piece-count mismatches or fitment inconsistencies — as Notes to Seller so you can double-check before publishing.</dd>
+      <dt data-page-node-id="QdnpJDQ96Gs2ZpBBOA2WHO">How much does it cost?</dt>
+      <dd data-page-node-id="prTr857ULlZBItJknkmw0p">You can generate 3 listings per day for free. The Pro plan ($9/month) unlocks 30 listings per day, batch CSV processing and priority generation.</dd>
+    </dl>
+  </section>
+
+  <section data-page-node-id="jlCVP56XlZyYcYks1yGFdu">
+    <h2 data-page-node-id="Na4F23Y3jpktPUWgQHiBBE">Go deeper</h2>
+    <p data-page-node-id="StT27cCLLNO9d7jda9a7Df">Read the guides: <a href="/ebay-title-builder.html" data-page-node-id="xMmRf8TZjbDEpseZvGQcCJ">how to build an 80-character eBay title</a>, the <a href="/ebay-fitment-chart-generator.html" data-page-node-id="iMYn1tc5ELTIBSnJU4zUIx">fitment chart generator</a>, or the complete <a href="/ebay-motors-item-specifics-guide.html" data-page-node-id="4d4JPEKF3BQio9eaou2FjY">eBay Motors Item Specifics guide</a>. See a real example: <a href="/oem-k643168-ford-f150-control-arm.html" data-page-node-id="ItDyN5CaBUoU15qzwRXgat">listing for a 2015–2020 Ford F-150 control arm set</a>.</p>
+  </section>
+</main>
+
+<footer data-page-node-id="la3YTeoONcqo56xQT3Pkhv">
+  <div class="wrap" data-page-node-id="tpGBdHBvGKtFtCvMkVdsCo">
+    <a href="/" data-page-node-id="eEBPeyF7IMQ1AHgF2j9B6P">Listing Generator</a>
+    <a href="/ebay-title-builder.html" data-page-node-id="YuBY6MDTD3d2o4SQYNtiET">Title Builder</a>
+    <a href="/ebay-fitment-chart-generator.html" data-page-node-id="NnuDOfWJaSXX7gTJZl9Jhy">Fitment Chart</a>
+    <a href="/ebay-motors-item-specifics-guide.html" data-page-node-id="M2vaWiJfvg9oWzFLN6L80p">Item Specifics Guide</a>
+    <a href="/ebay-seo-auto-parts-guide.html">eBay SEO Guide</a>
+    <a href="/oem-k643168-ford-f150-control-arm.html" data-page-node-id="nIfkFELU1tYDenfmZCaiZ9">Example Listing</a>
+    <span data-page-node-id="DfCGFNXOJT1zoUYBZpOoFI">© 2026 EbayAutoGuru. Not affiliated with eBay Inc.</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var btn=document.getElementById('go'),calc=document.getElementById('calc'),bar=document.getElementById('bar'),
+      msg=document.getElementById('calc-msg'),report=document.getElementById('report'),errbox=document.getElementById('err');
+  var steps=['Engine calculating…','Analyzing fitment data…','Optimizing titles…','Building Item Specifics…','Rendering compliant HTML…'];
+  if(!btn)return;
+
+  function el(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
+  function showErr(m,title){errbox.hidden=false;document.getElementById('err-title').textContent=title||'Engine error';document.getElementById('errmsg').textContent=m;errbox.scrollIntoView({behavior:'smooth',block:'center'});}
+
+  btn.addEventListener('click',function(){
+    var txt=document.getElementById('pkg').value.trim();
+    errbox.hidden=true;
+    if(txt.length<40){showErr('Paste the whole supplier data package first — title, part numbers, application list, description.');return;}
+    btn.disabled=true;report.hidden=true;calc.hidden=false;bar.style.width='0';
+    var i=0,done=false;
+    (function tick(){
+      if(done)return;
+      msg.textContent=steps[Math.min(i,steps.length-1)];
+      bar.style.width=Math.min(92,Math.round(((i+1)/steps.length)*92))+'%';
+      i++;setTimeout(tick,520+Math.random()*260);
+    })();
+    fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt})})
+      .then(function(r){return r.json().then(function(j){if(!r.ok||!j.ok){var e=new Error(j.error||('HTTP '+r.status));e.st=r.status;throw e;}return j;});})
+      .then(function(j){
+        done=true;bar.style.width='100%';render(j);
+        setTimeout(function(){calc.hidden=true;btn.disabled=false;report.hidden=false;report.scrollIntoView({behavior:'smooth',block:'start'});},300);
+      })
+      .catch(function(e){done=true;calc.hidden=true;btn.disabled=false;showErr(e.message||'Engine error',e.st===429?'Daily limit reached':null);});
+  });
+
+  function render(j){
+    var meta='EbayAutoGuru Engine v2.3 · '+j.seconds+'s';
+    if(typeof j.remaining==='number')meta+=' · '+j.remaining+' free listing'+(j.remaining===1?'':'s')+' left today';
+    document.getElementById('r-meta').textContent=meta;
+    var rt=document.getElementById('r-titles');rt.innerHTML='';
+    j.titles.forEach(function(t){
+      var row=el('div','trow'),s=el('span',null,t.text),em=el('em',null,t.len+'/80 '+(t.len<=80?'✓':'⚠'));
+      if(t.len>80)em.style.color='#b45309';
+      row.appendChild(s);row.appendChild(em);rt.appendChild(row);
+    });
+    var rs=document.getElementById('r-specs');rs.innerHTML='';
+    j.specifics.forEach(function(kv){
+      var tr=document.createElement('tr'),th=el('th',null,kv[0]),td=el('td',null,kv[1]);
+      tr.appendChild(th);tr.appendChild(td);rs.appendChild(tr);
+    });
+    if(!j.specifics.length)rs.appendChild((function(){var tr=document.createElement('tr');tr.appendChild(el('td',null,'-'));return tr;})());
+    document.getElementById('r-fitment').textContent=j.fitment||'-';
+    document.getElementById('r-cat').textContent=(j.category||'-')+' — verify in the eBay Sell flow before publishing.';
+    var rb=document.getElementById('r-bullets');rb.innerHTML='';
+    j.bullets.forEach(function(b){rb.appendChild(el('li',null,b));});
+    document.getElementById('htmlcode').textContent=j.html;
+    var rv=document.getElementById('r-verify');rv.innerHTML='';
+    if(j.verify&&j.verify.hallucinated&&j.verify.hallucinated.length){
+      rv.appendChild(el('li','bad','Removed '+j.verify.hallucinated.length+' part number(s) not found in your package (hallucination guard): '+j.verify.hallucinated.join(', ')));
+    }else{
+      rv.appendChild(el('li',null,'Part-number check passed: all '+j.verify.matched+' number(s) exist in your data package.'));
+    }
+    (j.notes&&j.notes.length?j.notes:['No contradictions detected in the data package.']).forEach(function(n){rv.appendChild(el('li',null,n));});
+  }
+
+  var cp=document.getElementById('copy');
+  if(cp)cp.addEventListener('click',function(){
+    var t=document.getElementById('htmlcode').textContent;
+    if(navigator.clipboard){navigator.clipboard.writeText(t);}
+    else{var ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}
+    cp.textContent='Copied ✓';setTimeout(function(){cp.textContent='Copy';},1600);
+  });
+})();
+</script>
+</body>
+</html>

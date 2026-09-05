@@ -1,0 +1,12 @@
+.dev.vars
+.env
+.env.local
+.env*.local
+node_modules/
+.wrangler/
+.vercel/
+__pycache__/
+*.pyc
+.test_*
+.keyprobe.txt
+.srv*.log

@@ -1,0 +1,14 @@
+{
+  "name": "ebayautoguru",
+  "private": true,
+  "type": "module",
+  "description": "EbayAutoGuru — free eBay Motors listing generator (static site + Cloudflare Pages Functions)",
+  "scripts": {
+    "dev": "wrangler pages dev public --kv RATE_KV",
+    "deploy:cf": "wrangler pages deploy public --project-name=ebayautoguru",
+    "test": "node tests/selftest.js && node tests/handler.test.js && node tests/api.test.js"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
