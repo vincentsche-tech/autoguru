@@ -372,6 +372,107 @@ def _infer_category_path(specifics):
     return f"eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > {type_val}"
 
 
+# Detect prompt-instruction echoes that the model regurgitates into sec[7]
+# instead of writing a real category path. SKU 1663201313 regression:
+# the model returned "-- verify in the eBay Sell flow before publishing."
+# for the whole section body, which `para()` happily surfaced into the UI.
+# Mirrors `looksLikeCategoryEcho()` in lib/listing.js.
+_CATEGORY_ECHO_RE_LIST = [
+    re.compile(r"^\s*[—\-]+\s*verify\b", re.I),
+    re.compile(r"\bverify\s+in\s+the\s+ebay\s*sell\s*flow\b", re.I),
+    re.compile(r"\b(?:seller|please)\s+verify\b", re.I),
+    re.compile(r"^\s*verify\b", re.I),
+    re.compile(r"\bsuggested\s+ebay\s+category\s+path\b", re.I),
+    re.compile(r"^\s*e\.?g\.?\s+", re.I),
+]
+
+
+def _looks_like_category_echo(s):
+    if not s:
+        return False
+    t = s.strip()
+    if not t or len(t) > 120:
+        return False
+    return any(rx.search(t) for rx in _CATEGORY_ECHO_RE_LIST)
+
+
+# Last-resort Item Specifics recovery from the RAW data package. Used when
+# the model skipped sec[2] entirely. Mirrors `fallbackSpecifics()` in
+# lib/listing.js — keep the two in lock-step.
+def _fallback_specifics(pkg_text: str, fitment: str):
+    out = []
+    seen = set()
+
+    def _push(k, v):
+        if not k or not v:
+            return
+        val = str(v).strip()
+        if not val or k in seen:
+            return
+        seen.add(k)
+        out.append([k, val])
+
+    def _take_tokens(raw):
+        toks = []
+        for tok in re.split(r"[,\n;|]+", raw or ""):
+            t = tok.strip()
+            if not t:
+                continue
+            if re.match(r"^(?:n/?a|none|—|-|does not apply|not specified|null)$", t, re.I):
+                continue
+            toks.append(t)
+        return toks
+
+    if not pkg_text:
+        return out
+    # Interchange Part Number
+    m = re.search(r"interchange\s*(?:part\s*)?numbers?\s*[:：]\s*([^\n]+)", pkg_text, re.I)
+    if m:
+        toks = _take_tokens(m.group(1))
+        if toks:
+            _push("Interchange Part Number", ", ".join(toks))
+    # OE/OEM Part Number
+    m = re.search(
+        r"(?:^|\n)\s*(?:OE|Part)\s*(?:/\s*Part)?\s*(?:number|no|#)\s*[:：]\s*([^\n]+)",
+        pkg_text, re.I,
+    ) or re.search(r"OEM\s*Part\s*Number\s*[:：]\s*([^\n]+)", pkg_text, re.I)
+    if m:
+        toks = _take_tokens(m.group(1))
+        if toks:
+            _push("OEM Part Number", ", ".join(toks))
+    # Manufacturer Part Number
+    m = re.search(r"manufacturer\s*(?:part\s*)?(?:number|no|#)\s*[:：]\s*([^\n]+)", pkg_text, re.I)
+    if m:
+        _push("MPN", m.group(1).strip().split(",")[0].split("\n")[0].strip())
+    # Brand
+    m = re.search(r"(?:^|\n)\s*brand\s*[:：]\s*([^\n]+)", pkg_text, re.I)
+    if m:
+        v = m.group(1).strip()
+        if re.match(r"^(?:not specified|null|—|-|n/?a|none)$", v, re.I):
+            _push("Brand", "Unbranded")
+        else:
+            _push("Brand", v)
+    else:
+        _push("Brand", "Unbranded")
+    # Placement on Vehicle
+    m = re.search(
+        r"placement\s*(?:on\s*(?:the\s*)?)?(?:vehicle)?\s*[:：]\s*([^\n]+)", pkg_text, re.I,
+    )
+    if m:
+        _push("Placement on Vehicle", m.group(1).strip())
+    # Fitment Type
+    m = re.search(r"fitment\s*type\s*[:：]\s*([^\n]+)", pkg_text, re.I)
+    if m:
+        _push("Fitment Type", m.group(1).strip())
+    # Type from package text
+    type_noun = infer_part_type_from_pkg(pkg_text)
+    if type_noun:
+        _push("Type", type_noun)
+    # Warranty default
+    _push("Warranty", "Does Not Apply")
+    return out
+
+
 _BARE_YEAR_RE = re.compile(
     r"^\s*\(?(?:19|20)\d{2}\s*[-–—]\s*(?:(?:19|20)\d{2}|\d{2})\s*$")
 
@@ -393,9 +494,30 @@ def _make_model_from(raw: str) -> str:
     return " ".join(words[:2])
 
 
+def _year_then_make_model(row: str):
+    """Re-order "<YearRange>\n<Make Model …>" into "<YearRange> <Make Model …>"
+    so the joined fitment output is uniform. SKU 1663201313 regression: when
+    the LLM wrote fitment as `2012-2015\nMercedes-Benz GL (X166):` the
+    year-first prose split left the newline embedded in the row. Mirrors
+    `_yearThenMakeModel()` in lib/listing.js."""
+    m = re.match(
+        r"^(\s*\(?(?:19|20)\d{2}\s*[-–—]\s*(?:(?:19|20)\d{2}|\d{2})\)?)\s*([\s\S]+)$",
+        row,
+    )
+    if not m:
+        return None
+    year, rest = m.group(1), m.group(2)
+    cleaned = re.sub(r"^[\s:;,\-–—]+", "", rest)
+    cleaned = re.sub(r"[\s:;,\-–—]+$", "", cleaned).strip()
+    if not cleaned:
+        return None
+    return re.sub(r"\s+", "", year) + " " + cleaned
+
+
 def _enrich_fitment_row(row: str, raw: str) -> str:
     if not _BARE_YEAR_RE.match(row):
-        return row
+        ordered = _year_then_make_model(row)
+        return ordered if ordered else row
     mm = _make_model_from(raw)
     return f"{mm} {row}".strip() if mm else row
 
@@ -719,32 +841,48 @@ def api_generate(pkg_text: str) -> dict:
                    if not _looks_like_echo(b) and not _is_category_path(b)][:5]
     desc = para(sec.get(5, ""))
     pkg_includes = [p for p in list_items(sec.get(6, "")) if not _looks_like_echo(p) and not _is_category_path(p)]
-    # Suggested eBay category path: model output wins, else infer from
-    # Item Specifics[Type] (see _infer_category_path). Without this fallback
-    # a short-package SKU where the model skips sec[7] renders as "-" in
-    # the UI — which gives the seller nothing to verify against.
-    category = para(sec.get(7, "")) or _infer_category_path(specifics) or "-"
+    # Item Specifics fallback: when the LLM skipped sec[2] entirely, recover
+    # KV rows from the raw data package so the seller has Brand / MPN / Type
+    # / Placement at minimum instead of a lone "-" row in the UI.
+    specifics_final = specifics
+    if not specifics_final:
+        fb = _fallback_specifics(pkg_text, fitment)
+        if fb:
+            specifics_final = fb
+    # Suggested eBay category path: model output wins if it looks real,
+    # else infer from Item Specifics[Type]. The echo guard below drops the
+    # common case where the model regurgitates the prompt’s
+    # "— verify in the eBay Sell flow before publishing." instruction as
+    # the entire section body — that’s not a category, it’s instruction
+    # text masquerading as content.
+    raw_category = para(sec.get(7, ""))
+    category = (
+        (raw_category if (raw_category and not _looks_like_category_echo(raw_category)) else "")
+        or _infer_category_path(specifics_final)
+        or _infer_category_path(_fallback_specifics(pkg_text, fitment))
+        or "-"
+    )
     notes = [n for n in list_items(sec.get(8, "")) if not _looks_like_echo(n) and not _is_category_path(n)]
     ver = verify_output(pkg_text, title, llm_text)
     if not titles:
-        synth = fallback_title(specifics, fitment, pkg_text)
+        synth = fallback_title(specifics_final, fitment, pkg_text)
         if synth:
             titles = [{"text": synth, "len": len(synth)}]
     # Degradation guard: if the model returned essentially nothing usable
     # (no valid title AND no item specifics AND no selling points AND no
     # fitment), flag the result instead of silently returning a placeholder
     # "Auto Part" listing the seller might publish by mistake.
-    degraded = ((not titles) or (len(titles) == 1 and titles[0]["text"] == "Auto Part")) and (not specifics) and (not bullets) and fitment == "-"
+    degraded = ((not titles) or (len(titles) == 1 and titles[0]["text"] == "Auto Part")) and (not specifics_final) and (not bullets) and fitment == "-"
     result = {
         "ok": False if degraded else True, "model": model, "seconds": round(secs, 1), "tokens": tokens,
         "titles": titles,
-        "specifics": specifics,
+        "specifics": specifics_final,
         "fitment": fitment,
         "bullets": bullets,
         "description": desc,
         "package_includes": pkg_includes,
         "category": category,
-        "html": build_html(titles[0]["text"] if titles else "", fitment, bullets, desc, specifics, pkg_includes),
+        "html": build_html(titles[0]["text"] if titles else "", fitment, bullets, desc, specifics_final, pkg_includes),
         "notes": notes,
         "verify": ver,
     }

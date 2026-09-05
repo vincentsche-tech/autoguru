@@ -726,17 +726,83 @@ ok("[13c] inferPartTypeFromPkg derives 'Air Suspension Strut' from 'air shock'",
 // Degraded (empty LLM) run — should still produce a meaningful title + fitment,
 // NOT the useless placeholder "Auto Part", because the package text is rich.
 const rMbDeg = buildResult(MB_PKG, "");
-ok("[13d] degraded run: title is the derived part type, not 'Auto Part'",
-   rMbDeg.titles[0]?.text === "Air Suspension Strut",
+ok("[13d] degraded run: title starts with the derived part type, not 'Auto Part'",
+   /^Air Suspension Strut\b/.test(rMbDeg.titles[0]?.text || ""),
+   rMbDeg.titles[0]?.text);
+ok("[13d] degraded run: title carries an OEM token from Interchange Part Number",
+   /1663201313/.test(rMbDeg.titles[0]?.text || ""),
+   rMbDeg.titles[0]?.text);
+ok("[13d] degraded run: title carries placement from pkg",
+   /Front left/i.test(rMbDeg.titles[0]?.text || ""),
+   rMbDeg.titles[0]?.text);
+ok("[13d] degraded run: title is NOT the 'Auto Part' placeholder",
+   rMbDeg.titles[0]?.text !== "Auto Part",
    rMbDeg.titles[0]?.text);
 ok("[13d] degraded run: fitment recovered from package (not '-')",
    rMbDeg.fitment !== "-" && /Mercedes/.test(rMbDeg.fitment),
    rMbDeg.fitment);
+
+// New for round 13: Item Specifics fallback populates from pkgText when the
+// model skips sec[2]. The seller should at least see Interchange Part Number,
+// Brand, Type, and Placement rows instead of a lone "-" placeholder.
+ok("[13d] degraded run: Item Specifics fallback populated from package",
+   rMbDeg.specifics.some(([k]) => k === "Interchange Part Number") &&
+   rMbDeg.specifics.some(([k]) => k === "Type"),
+   JSON.stringify(rMbDeg.specifics));
+ok("[13d] degraded run: Category fallback lands in Suspension & Steering",
+   /Suspension\s*&\s*Steering/i.test(rMbDeg.category),
+   rMbDeg.category);
+ok("[13d] degraded run: Category fallback is NOT the echo placeholder",
+   !/verify\s+in\s+the\s+ebay\s*sell\s*flow/i.test(rMbDeg.category),
+   rMbDeg.category);
 
 // Truly empty package — guard must fire.
 const rEmpty = buildResult("some random text with no structure at all", "");
 ok("[13e] empty package: ok:false (degradation guard)", rEmpty.ok === false);
 ok("[13e] empty package: warning present", typeof rEmpty.warning === "string" && rEmpty.warning.length > 0, rEmpty.warning);
 ok("[13e] empty package: title is the placeholder 'Auto Part'", rEmpty.titles[0]?.text === "Auto Part");
+
+// [14] SKU 1663201313 followup: model returns only the prompt instruction
+// echoed in sec[7] ("-- verify in the eBay Sell flow before publishing.")
+// and omits sec[2]. buildResult must:
+//   (a) drop the echo from sec[7] and surface the inferred category
+//   (b) populate Item Specifics from the raw package
+//   (c) preserve the recovered fitment + fallback title
+//   (d) keep ok:true because the package is rich enough.
+console.log("\n[14] degraded sec[2]/sec[7] recovery (Mercedes 1663201313 echo regression)");
+const MB_ECHO_LLM = `1. Three Cassini-optimized titles
+2. Item Specifics
+3. Fitment
+4. Five bullet selling points
+5. Description first paragraph
+6. Package Includes
+7. Suggested eBay category path
+— verify in the eBay Sell flow before publishing.
+8. Notes to Seller`;
+const rMbEcho = buildResult(MB_PKG, MB_ECHO_LLM, "gemini-3.1-flash-lite", 4.7, "582/657");
+ok("[14] category echo is NOT surfaced into the UI",
+   !/verify\s+in\s+the\s+ebay\s*sell\s*flow/i.test(rMbEcho.category),
+   rMbEcho.category);
+ok("[14] category falls back to the inferred Suspension & Steering path",
+   /Suspension\s*&\s*Steering/i.test(rMbEcho.category),
+   rMbEcho.category);
+ok("[14] Item Specifics recovered from package (≥3 real rows)",
+   rMbEcho.specifics.length >= 3,
+   JSON.stringify(rMbEcho.specifics));
+ok("[14] recovered specifics include Interchange Part Number",
+   rMbEcho.specifics.some(([k]) => k === "Interchange Part Number"),
+   JSON.stringify(rMbEcho.specifics));
+ok("[14] recovered specifics include Placement on Vehicle",
+   rMbEcho.specifics.some(([k]) => k === "Placement on Vehicle"),
+   JSON.stringify(rMbEcho.specifics));
+ok("[14] recovered fitment has Mercedes-Benz mention (not '-')",
+   rMbEcho.fitment !== "-" && /Mercedes/i.test(rMbEcho.fitment),
+   rMbEcho.fitment);
+ok("[14] HTML escapes the category echo (no '--verify' leak)",
+   !/—\s*verify/i.test(rMbEcho.html),
+   rMbEcho.html);
+ok("[14] fallback title is meaningful (starts with Air Suspension Strut)",
+   /^Air Suspension Strut\b/.test(rMbEcho.titles[0]?.text || ""),
+   rMbEcho.titles[0]?.text);
 
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);
