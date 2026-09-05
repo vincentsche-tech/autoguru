@@ -634,4 +634,56 @@ ok("Short: buildResult returns ok:true (no crash on missing sec[6]/sec[8])", rSh
 ok("Short: package_includes defaults to empty array", Array.isArray(rShort.package_includes) && rShort.package_includes.length === 0);
 ok("Short: notes defaults to empty array", Array.isArray(rShort.notes) && rShort.notes.length === 0);
 
+// Nested bullet regression: SKU Window Mirror Master Switch (A9079056603).
+// Gemini echoed `- *- foo` (single `-` top-bullet + `*-` sub-bullet marker,
+// no whitespace between `*` and `-`) and the old single-layer regex stripped
+// only `-`, leaving `*- foo` leaking into every bullet / HTML <li>.
+console.log("\n[12c] nested `- *- foo` bullet cluster stripped to body");
+const WMS_PKG = [
+  "A9079056603",
+  "A9079059002",
+  "Unbranded",
+  "Window Mirror Master Switch",
+  "Front Left",
+  "Universal fitment",
+].join("\n");
+const WMS_LLM = `1. Titles.
+** Window Mirror Master Switch A9079056603, Front Left
+** Master Power Window Mirror Switch Control A9079056603 Front Left
+** Window Mirror Master Switch A9079059002 for Front Left Position
+
+2. Item Specifics.
+**Brand:** Unbranded
+**MPN:** A9079056603
+**OEM Part Number:** A9079056603
+**Interchange Part Number:** A9079059002
+**Placement on Vehicle:** Front Left
+**Material:** High-quality materials
+**Type:** Window Mirror Master Switch
+**Warranty:** Does Not Apply
+
+3. Fitment.
+Universal fitment for compatible vehicles.
+
+4. Selling Points.
+- *- Constructed from premium, high-grade materials that provide superior rust-proof and colorfast durability compared to standard aftermarket alternatives.
+- *- Restores full functionality to your vehicle's window and mirror controls with a high-performance design that mirrors original equipment standards.
+- *- Lightweight yet rugged construction ensures long-term reliability and consistent operation under daily use.
+- *- Designed as a direct-fit replacement for OEM part numbers A9079056603 and A9079059002, simplifying the installation process for professional results.
+
+5. Product Description.
+This premium window mirror master switch is engineered for reliable performance.
+
+7. Suggested eBay category path.
+eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Switches > Window Switches`;
+const rWms = buildResult(WMS_PKG, WMS_LLM);
+ok("WMS: buildResult returns ok:true", rWms.ok === true);
+ok("WMS: 4 selling points", rWms.bullets.length === 4);
+ok("WMS: no bullet starts with *- or *", rWms.bullets.every((b) => !/^[*\-]/.test(b)));
+ok("WMS: no bullet starts with bare *", rWms.bullets.every((b) => !/^\*/.test(b)));
+ok("WMS: bullets begin with prose (Constructed/Restores/Lightweight/Designed)", rWms.bullets[0].startsWith("Constructed") && rWms.bullets[3].startsWith("Designed"));
+ok("WMS: HTML does not contain '*-'", !rWms.html.includes("*-"));
+ok("WMS: HTML does not contain '- *-'", !rWms.html.includes("- *-"));
+ok("WMS: category inferred from Type (Window Switches)", /Window Switches/.test(rWms.category));
+
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);
