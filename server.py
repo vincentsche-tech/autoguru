@@ -78,19 +78,99 @@ def split_sections(text: str) -> dict:
     return seen
 
 
+# ---------- prompt-instruction echo detector (mirrors lib/listing.js) ----------
+_ECHO_PATTERNS = [
+    r"\bone attribute per line\b",
+    r"\bone vehicle line per\b",
+    r"\bone concern per\b",
+    r"\bone item per\b",
+    r"\bcover brand\b",
+    r"\bbenefit[- ]driven\b",
+    r"\bno keyword stuffing\b",
+    r"\boutput only sections\b",
+    r"\bdo not invent\b",
+    r"\bnever add\b",
+    r"\bdo not wrap\b",
+    r"\bdo not omit\b",
+    r"\binclude warranty only if\b",
+    r"\bsuggested ebay category path\b",
+    r"\bnotes to seller\b",
+    r"\bpackage includes\b",
+    r"\bfive bullet\b",
+    r"\bthree cassini\b",
+    r"\bdescription first paragraph\b",
+    r"\bmaximum?\s*\d+\s*chars?\b",
+    r"\btitle case\b",
+    r"\bno decorative punctuation\b",
+]
+_ECHO_RE = re.compile("|".join(_ECHO_PATTERNS), re.IGNORECASE)
+
+
+def _looks_like_echo(ln: str) -> bool:
+    if len(ln) < 12:
+        return False
+    if _ECHO_RE.search(ln):
+        return True
+    if '"' in ln and ":" in ln and len(ln.split()) > 12:
+        return True
+    return False
+
+
+# ---------- eBay Motors Item Specifics label whitelist (mirrors lib/listing.js) ----------
+_KNOWN_FIELDS = {
+    "brand": "Brand",
+    "manufacturer part number": "MPN",
+    "mpn": "MPN",
+    "manufacturer part no": "MPN",
+    "manufacturer part #": "MPN",
+    "interchange part number": "Interchange Part Number",
+    "interchange part numbers": "Interchange Part Number",
+    "interchange number": "Interchange Part Number",
+    "interchange": "Interchange Part Number",
+    "oe/oem part number": "OEM Part Number",
+    "oem part number": "OEM Part Number",
+    "oem number": "OEM Part Number",
+    "oe part number": "OEM Part Number",
+    "oe number": "OEM Part Number",
+    "oem": "OEM Part Number",
+    "placement on vehicle": "Placement on Vehicle",
+    "placement": "Placement on Vehicle",
+    "material": "Material",
+    "type": "Type",
+    "fitment type": "Fitment Type",
+    "warranty": "Warranty",
+    "country/region of manufacture": "Country/Region of Manufacture",
+    "country of origin": "Country/Region of Manufacture",
+    "vintage part": "Vintage Part",
+    "number of pieces": "Number of Pieces",
+    "piece count": "Number of Pieces",
+    "universal fitment": "Universal Fitment",
+    "custom bundle": "Custom Bundle",
+    "superseded part number": "Superseded Part Number",
+    "color": "Color",
+    "manufacturer warranty": "Manufacturer Warranty",
+    "part number": "Part Number",
+}
+
+
+def _normalize_label(label: str) -> str:
+    s = re.sub(r"\s+", " ", label)
+    s = re.sub(r"[*_`:]+", "", s)
+    return s.strip(" \t\n\r-–—")
+
+
 def list_items(block: str) -> list:
     out = []
-    re_item = re.compile(r"^\s*(?:[-*•]|\d+[).]\s+)?\s*(.+?)\s*$")
     for raw in block.splitlines():
         ln = raw.strip()
-        if not ln:
+        if not ln or ln.upper() == "NONE":
             continue
-        m = re_item.match(ln)
+        # Bullet or numbered prefix
+        m = re.match(r"^\s*(?:[-*•]\s+|\(?\d+[).]\s+|Option\s*\d+\s*[:：.]\s+|Title\s*\d+\s*[:：.]\s+)(.+)$", ln)
         if not m:
             continue
-        item = re.sub(r"^[-*•]\s+", "", m.group(1)).strip()
-        ulen = len(re.sub(r"[*_`]", "", item).replace(" ", ""))
-        if ulen < 3:  # 丢弃 "1)" / "•" / "None" 之类噪声行
+        item = m.group(1).strip()
+        if len(re.sub(r"[*_`]", "", item).replace(" ", "")) < 3:
             continue
         if item.upper() == "NONE":
             continue
@@ -100,48 +180,93 @@ def list_items(block: str) -> list:
 
 def kv_items(block: str) -> list:
     out = []
-    re_label = re.compile(r"^\s*(?:\*+\s*)?([A-Z][A-Za-z0-9 /&\-]{1,40})\s*\**\s*[:：]\s*(.+?)\s*\**\s*$")
+    seen = set()
     for raw in block.splitlines():
         ln = raw.strip()
-        if not ln or ":" not in ln:
+        if not ln:
+            continue
+        if _looks_like_echo(ln):
             continue
         no_bullet = re.sub(r"^[-*•]\s+", "", ln)
-        m = re_label.match(no_bullet)
-        if not m:
+        colon = re.search(r"[:：]", no_bullet)
+        if not colon:
             continue
-        label = m.group(1).strip()
-        value = m.group(2).strip()
-        if label and value and value.upper() != "NONE":
-            out.append([label, value])
+        label = no_bullet[: colon.start()].strip().strip("*").strip()
+        value = no_bullet[colon.end():].strip().strip("*").strip()
+        if not label or not value or value.upper() == "NONE":
+            continue
+        canonical = _KNOWN_FIELDS.get(_normalize_label(label).lower())
+        if not canonical:
+            continue
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        out.append([canonical, value])
     return out
 
 
 def para(block: str) -> str:
-    lines = [l.strip() for l in block.splitlines() if l.strip()]
-
-    def strip_prefix(l):
-        if re.match(r"\s*[-*•]", l):
-            return re.sub(r"^[-*•]\s+", "", l).strip()
-        return re.sub(r"\*\*", "", l).strip()
-
-    return " ".join(strip_prefix(l) for l in lines).strip()
+    lines = []
+    for ln in block.splitlines():
+        ln = ln.strip()
+        if not ln or _looks_like_echo(ln):
+            continue
+        m = re.match(r"^\s*(?:[-*•]\s+|\(?\d+[).]\s+)(.+)$", ln)
+        item = m.group(1) if m else re.sub(r"\*\*", "", ln)
+        lines.append(item.strip())
+    return " ".join(lines).strip()
 
 
 def fitment_lines(block: str) -> list:
     raw = (block or "").strip()
     if not raw:
         return []
-    listed = list_items(raw)
-    if len(listed) >= 2:
+    listed = [l for l in list_items(raw) if re.match(r"^\s*\(?(?:19|20)\d{2}\s*[-–—]\s*(?:(?:19|20)\d{2}|\d{2})\)?", l)]
+    if len(listed) >= 1:
         return listed
-    # 单行连体型 "2016-2020 GLC300 ... 2018-2020 GLC350e ..."：按年份区间切分
     split = re.split(
         r"(?=\(?\s*(?:19|20)\d{2}\s*[-–—]\s*(?:19|20)?\d{2})", raw)
     split = [l.strip().lstrip(":;,-–— ").strip() for l in split]
-    split = [l for l in split if l]
-    if len(split) >= 2:
-        return split
-    return [raw]
+    split = [l for l in split if re.match(r"^\s*\(?(?:19|20)\d{2}\s*[-–—]", l)]
+    return split
+
+
+_TITLE_NEGATIVES = re.compile(
+    r"\boutput\b|\battribute per line\b|\bcassini-optimized\b|"
+    r"\bdescription\b|\bitem specifics\b|\bfitment\b|\bbullet\b|\bwarranty\b",
+    re.IGNORECASE,
+)
+_TITLE_PART_TYPE = re.compile(
+    r"\b(?:arm|cover|handle|switch|sensor|pump|motor|filter|headlight|taillight|"
+    r"mirror|bumper|fender|hood|grille|strut|shock|spring|control|suspension|"
+    r"brake|wheel|hose|clamp|bracket|housing|gasket|bearing|valve|relay|fuse|"
+    r"coil|alternator|starter|radiator|condenser|compressor|manifold|throttle|"
+    r"catalyst|muffler|exhaust|axle|pulley|tensioner|damper|knuckle|spindle|"
+    r"caliper|rotor|drum|liner|hub|rack|pinion|gear|lever|pedal|pad|rim|spoke|"
+    r"tire|cap|trim|molding|seal|strip|tape|bolt|screw|nut|washer|clip|pin|"
+    r"retainer|grommet|bushing|mount|engine|transmission|drive|shaft|joint|"
+    r"boot|module|computer|wiring|harness|connector|bulb|lamp|light|gauge|"
+    r"cluster|speedometer|tachometer|panel|sunroof|window|door|lock|hinge|"
+    r"trunk|lid|tailgate|hatch|spoiler|wing|deflector|guard|protector|"
+    r"trailer|hitch|coupler|ball|carrier|box|tray|liner|holder|stand|prop|"
+    r"jack|tool|kit|assembly|pair|left|right|front|rear|upper|lower|inner|"
+    r"outer|driver|passenger|side|pcs|piece)\b",
+    re.IGNORECASE,
+)
+_TITLE_HAS_OEM = re.compile(
+    r"\b[A-Z0-9]{2,}-[A-Z0-9]{2,}\b|\b\d{5,}\b|\b[A-Z]\d{4,}\b|\b(?:19|20)\d{2}\b"
+)
+
+
+def _is_valid_title(t: str) -> bool:
+    s = (t or "").strip()
+    if len(s) < 25 or len(s) > 80:
+        return False
+    if _TITLE_NEGATIVES.search(s):
+        return False
+    if _looks_like_echo(s):
+        return False
+    return bool(_TITLE_PART_TYPE.search(s) or _TITLE_HAS_OEM.search(s))
 
 
 # ---------- 白名单校验（与 cmd_verify 同逻辑） ----------
@@ -231,16 +356,17 @@ def api_generate(pkg_text: str) -> dict:
         return {"ok": False, "error": "All Gemini models failed — try again in a moment."}
 
     sec = split_sections(llm_text)
-    titles = list_items(sec.get(1, ""))[:3]
+    raw_titles = list_items(sec.get(1, ""))
+    titles = [t for t in raw_titles if _is_valid_title(t)][:3]
     specifics = kv_items(sec.get(2, ""))
     fit_block = sec.get(3, "")
     fit_list = fitment_lines(fit_block)
     fitment = (fit_list[0] if len(fit_list) == 1 else "; ".join(fit_list)) if fit_list else "-"
-    bullets = list_items(sec.get(4, ""))[:5]
+    bullets = [b for b in list_items(sec.get(4, "")) if not _looks_like_echo(b)][:5]
     desc = para(sec.get(5, ""))
-    pkg_includes = list_items(sec.get(6, ""))
+    pkg_includes = [p for p in list_items(sec.get(6, "")) if not _looks_like_echo(p)]
     category = para(sec.get(7, "")) or "-"
-    notes = list_items(sec.get(8, ""))
+    notes = [n for n in list_items(sec.get(8, "")) if not _looks_like_echo(n)]
     ver = verify_output(pkg_text, title, llm_text)
 
     return {

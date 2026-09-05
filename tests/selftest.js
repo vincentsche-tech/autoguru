@@ -163,7 +163,7 @@ const sec4 = splitSections(GLC);
 ok("GLC sections: all 8 present", Object.keys(sec4).length === 8, JSON.stringify(Object.keys(sec4)));
 ok("GLC titles: numbered 1) 2) 3) captured", listItems(sec4[1]).length === 3, JSON.stringify(listItems(sec4[1])));
 ok("GLC titles: not over 80 chars", listItems(sec4[1]).every((t) => t.length <= 80));
-ok("GLC specifics: 10 rows captured", kvItems(sec4[2]).length === 10, JSON.stringify(kvItems(sec4[2])));
+ok("GLC specifics: 9 rows captured (MPN + Manufacturer Part Number merged)", kvItems(sec4[2]).length === 9, JSON.stringify(kvItems(sec4[2])));
 const fits = fitmentLines(sec4[3]);
 ok("GLC fitment: bunched line sliced to 5 vehicles", fits.length === 5, JSON.stringify(fits));
 ok(
@@ -179,7 +179,7 @@ ok("GLC notes: None filtered out", listItems(sec4[8]).length === 0);
 // Full e2e through buildResult
 const rGLC = buildResult(glcPkg, GLC, "gemini-3.1-flash-lite", 4.5, "700/450");
 ok("GLC e2e: titles populated", rGLC.titles.length === 3);
-ok("GLC e2e: specifics table populated", rGLC.specifics.length === 10);
+ok("GLC e2e: specifics table populated", rGLC.specifics.length === 9);
 ok("GLC e2e: fitment has 5 vehicles", /GLC 300|GLC 350e|GLC 43 AMG|GLC 63 AMG|GLC 63 S/.test(rGLC.fitment) && rGLC.fitment.split(/;\s*/).filter(Boolean).length === 5);
 ok(
   "GLC e2e: html contains all 5 fitments",
@@ -202,5 +202,52 @@ const secB = splitSections(BOLD);
 const kvBold = kvItems(secB[2] || "");
 ok("bold-label: 4 rows captured", kvBold.length === 4, JSON.stringify(kvBold));
 ok("bold-label: Brand row ok", kvBold[0][0] === "Brand" && kvBold[0][1] === "Unbranded");
+
+// ----- SKU 14459377 regression: model regurgitated the prompt instructions
+// inside sections 2/3/4 (e.g. "2. Item Specifics. One attribute per line as
+// '** <Label>: <value>'. Cover Brand, MPN, ..."). Parser must strip those
+// echo lines and only emit real KV / fitment / titles.
+console.log("\n[6] prompt-instruction echo rejection (SKU 14459377)");
+const ECHO = `1. Three Cassini-optimized titles
+2. Item Specifics. One attribute per line as "* <Label>: <value>". Cover Brand, MPN, OEM Part Number, Interchange Part Number, Placement on Vehicle, Material, Type, Manufacturer Part Number, Fitment Type. Include Warranty ONLY if the data package states one, otherwise write "* Warranty: Does Not Apply" (do not omit the field). Do not wrap labels in markdown bold.
+* Brand: Unbranded
+* MPN: Does Not Apply
+* OEM Part Number: 88981548, 12472876, 15703702
+* Interchange Part Number: 88981548, 12472876, 15703702
+* Placement on Vehicle: Front, Right
+* Material: Not specified
+* Type: Door Armrest Handle
+* Manufacturer Part Number: 88981548, 12472876, 15703702
+* Fitment Type: Direct Replacement
+* Warranty: Does Not Apply
+3. Fitment. One vehicle line per "* " entry: "* <Year-Range Make Model Trim (Side)>". Every distinct fitment from the package goes on its own line — never merge into one prose sentence.
+* 1999-2006 Chevy Suburban (Front Right)
+* 1999-2006 Chevy Tahoe (Front Right)
+* 1999-2006 Cadillac Escalade (Front Right)
+* 1999-2006 Chevy Avalanche (Front Right)
+* 1999-2006 GMC Yukon (Front Right)
+4. Five bullet selling points (benefit-driven, premium tone, based only on the package). Each as "* <point>".
+* Restore your factory interior styling with this direct-fit door armrest handle.
+5. Description first paragraph (2-3 sentences, benefit-driven, no external links; naturally work in the main part number(s) and year/make/model; no keyword stuffing). Plain text, no bullet.
+Black Door Armrest Handle Front Right Fit for Chevy Avalanche Suburban Tahoe Cadillac Escalade GMC Yukon 1999-2006 88981548 12472876 15703702.
+6. Package Includes. One item per "* " line; if the package does not state a list, write "* None".
+* 1x Door Armrest Handle
+7. Suggested eBay category path on a single line as plain text.
+eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Interior Door Handles & Parts
+8. Notes to Seller. One concern per "* " line.
+* None`;
+const echoPkg = `Black Door Armrest Handle Front Right Fit for Chevy Avalanche Suburban Tahoe Cadillac Escalade GMC Yukon 1999-2006\nInterchange: 88981548 12472876 15703702\nFitment: 1999-2006 Chevy Suburban Front Right 1999-2006 Chevy Tahoe Front Right 1999-2006 Cadillac Escalade Front Right 1999-2006 Chevy Avalanche Front Right 1999-2006 GMC Yukon Front Right`;
+const rEcho = buildResult(echoPkg, ECHO, "gemini-3.1-flash-lite", 3.2, "600/500");
+ok("Echo: titles empty (model never wrote them — better than echoing the rule)", rEcho.titles.length === 0, JSON.stringify(rEcho.titles));
+ok("Echo: specs all real eBay fields, no rule text leaking", rEcho.specifics.every(([k, v]) => /^(Brand|MPN|OEM Part Number|Interchange Part Number|Placement on Vehicle|Material|Type|Manufacturer Part Number|Fitment Type|Warranty)$/.test(k)));
+ok("Echo: no spec value is prompt instruction text", rEcho.specifics.every(([k, v]) => !/Cover Brand|One attribute per line/i.test(v)));
+ok("Echo: 9 spec rows from a 9 distinct field source", rEcho.specifics.length === 9, JSON.stringify(rEcho.specifics));
+ok("Echo: fitment has 5 vehicles from a single bunched section", rEcho.fitment.split(/;\s*/).filter(Boolean).length === 5);
+ok("Echo: bullets contain real selling point (no rule echo)", rEcho.bullets.length >= 1 && !/benefit[- ]driven/i.test(rEcho.bullets[0] || ""));
+ok("Echo: description is plain prose, no rule text", /Door Armrest Handle|88981548/.test(rEcho.description) && !/One attribute per line|benefit[- ]driven/i.test(rEcho.description));
+ok("Echo: category path surfaces Interior Door Handles", /Interior Door Handles/.test(rEcho.category));
+ok("Echo: notes is empty after stripping None-echo", rEcho.notes.length === 0);
+ok("Echo: verify passes (no hallucinated numbers)", rEcho.verify.hallucinated.length === 0, JSON.stringify(rEcho.verify));
+ok("Echo: html is clean of rule text", !/One attribute per line|benefit[- ]driven|Cover Brand/i.test(rEcho.html));
 
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);
