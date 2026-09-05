@@ -286,4 +286,68 @@ ok("Tonneau: Package Includes never contains a category path", !/ebay\s*motors\s
 ok("Tonneau: fitment split on `;` (two rows, Chevrolet + GMC)", rTonn.fitment.split(/;\s*/).filter(Boolean).length === 2);
 ok("Tonneau: html has no category-path leakage in Package Includes section", !/>eBay Motors\s*>/i.test(rTonn.html));
 
+// 86244195 — Engine Valve Cover, no usable titles in the model output.
+// Symptom (user-reported from live Vercel): TITLES section was synthesised
+// from a thin fallback that only knew the Type + first year + placement
+// ("Engine Valve Cover for 2011, Left, Right, Front" — too weak to be a
+// real listing title). Other sections were complete and correct. We expect
+// the upgraded fallback to now produce a title that includes the make/
+// model and the year range from the fitment line.
+console.log("\n[7] fallback title upgrade (SKU 86244195)");
+const VALVE_PKG = `2X Engine Valve Cover W/ Gaskets fit for Ford Lincoln Edge F-150 Transit-150 250 350\nPlease check the OEM Number before purchase. This is the best way to confirm the fitment.\nPart number:\nOE/Part number:\nBR3Z6582R, BR3Z-6582-R, BR3Z6582H, BR3Z-6582-H, BR3Z6582U, BR3Z-6582-U, BR3Z6582G, BR3Z-6582-G, BR3Z6582P, BR3Z-6582-P, BR3Z6582M, BR3Z-6582-M, BR3E6K271FG, BR3E6K271GC`;
+const VALVE_LLM = `1. Three Cassini-optimized titles
+2. Item Specifics
+* Brand: Unbranded
+* MPN: Does Not Apply
+* OEM Part Number: BR3Z6582R, BR3Z-6582-R, BR3Z6582H, BR3Z-6582-H, BR3Z6582U, BR3Z-6582-U, BR3Z6582G, BR3Z-6582-G, BR3Z6582P, BR3Z-6582-P, BR3Z6582M, BR3Z-6582-M, BR3E6K271FG, BR3E6K271GC
+* Interchange Part Number: BR3Z6582R, BR3Z6582H, BR3Z6582U, BR3Z6582G, BR3Z6582P, BR3Z6582M, BR3E6K271FG, BR3E6K271GC
+* Placement on Vehicle: Left, Right, Front
+* Material: Plastic
+* Type: Engine Valve Cover
+* Fitment Type: Direct Replacement
+* Warranty: 1 Year
+3. Fitment
+* 2011-2018 Ford Edge V6 3.5L (Left & Right)
+* 2011-2014 Ford Edge V6 3.7L (Left & Right)
+* 2011-2019 Ford Explorer V6 3.5L (Left & Right)
+* 2015-2017 Ford F-150 V6 3.5L (Left & Right)
+* 2011-2014 Ford F-150 V6 3.7L (Left & Right)
+* 2013-2019 Ford Flex V6 3.5L (Left & Right)
+* 2011-2017 Ford Mustang V6 3.7L (Left & Right)
+* 2013-2019 Ford Police Interceptor Sedan V6 3.5L (Left & Right)
+* 2014-2018 Ford Police Interceptor Sedan V6 3.7L (Left & Right)
+* 2013-2019 Ford Police Interceptor Utility V6 3.7L (Left & Right)
+* 2013-2019 Ford Taurus V6 3.5L (Left & Right)
+* 2015-2019 Ford Transit-150 V6 3.7L (Left & Right)
+* 2015-2019 Ford Transit-250 V6 3.7L (Left & Right)
+* 2015-2019 Ford Transit-350 V6 3.7L (Left & Right)
+* 2017-2019 Lincoln Continental V6 3.7L (Left & Right)
+* 2013-2016 Lincoln MKS V6 3.7L (Left & Right)
+* 2013-2018 Lincoln MKT V6 3.7L (Left & Right)
+* 2011-2018 Lincoln MKX V6 3.7L (Left & Right)
+* 2013-2016 Lincoln MKZ V6 3.7L (Left & Right)
+4. Five bullet selling points
+* Direct-fit replacement engineered for Ford and Lincoln V6 engines.
+* Premium plastic construction delivers long-term durability under thermal stress.
+5. Description first paragraph
+Restore your engine's factory sealing with this 2X Engine Valve Cover set, engineered as a direct replacement for Ford and Lincoln V6 3.5L/3.7L engines.
+6. Package Includes
+* 2x Engine Valve Cover
+* Gaskets included
+7. Suggested eBay category path
+eBay Motors > Parts & Accessories > Car & Truck Parts & Engines > Engine Blocks & Parts > Valve Covers
+8. Notes to Seller
+* None`;
+const rValve = buildResult(VALVE_PKG, VALVE_LLM, "gemini-3.1-flash-lite", 7.2, "582/657");
+ok("Valve: titles always produced (fallback)", rValve.titles.length >= 1, JSON.stringify(rValve.titles));
+ok("Valve: title length is in 15-80 range", rValve.titles.every((t) => t.len >= 15 && t.len <= 80), JSON.stringify(rValve.titles.map((t) => t.len)));
+ok("Valve: fallback title mentions the part Type", /Engine Valve Cover/i.test(rValve.titles[0].text), rValve.titles[0].text);
+ok("Valve: fallback title carries a year range (not just a single year)", /[-–—]\s*\d{2,4}/.test(rValve.titles[0].text), rValve.titles[0].text);
+ok("Valve: fallback title carries a Make/Model hint", /Ford|Lincoln/.test(rValve.titles[0].text), rValve.titles[0].text);
+ok("Valve: specifics has 8 canonical rows from real KV only", rValve.specifics.length === 8, JSON.stringify(rValve.specifics.map(([k]) => k)));
+ok("Valve: fitment split on `\\n` (19 vehicles, all present)", rValve.fitment.split(/;\s*/).filter(Boolean).length === 19);
+ok("Valve: html contains every fitment model", ["Ford Edge", "Ford F-150", "Ford Mustang", "Ford Taurus", "Lincoln MKZ", "Lincoln MKT", "Lincoln Continental"].every((m) => rValve.html.includes(m)));
+ok("Valve: no echo strings leaked into html", !/Three Cassini|One attribute per line|Cover Brand/i.test(rValve.html));
+ok("Valve: verify passes (all 14 OEM numbers exist in package)", rValve.verify.hallucinated.length === 0, JSON.stringify(rValve.verify));
+
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);

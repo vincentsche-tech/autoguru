@@ -298,21 +298,69 @@ def _is_valid_title(t: str) -> bool:
     return True
 
 
+_PLACEHOLDER_RE = re.compile(r"^(?:does not apply|n/?a|none|-|—|null)$", re.IGNORECASE)
+
+
+def _first_real_oem_token(csv):
+    """Pick the first OEM-shaped token from a comma-separated value list.
+    Filters out placeholders like 'Does Not Apply', 'N/A', '-'."""
+    if not csv:
+        return ""
+    for tok in re.split(r"[,;|]", csv):
+        t = tok.strip()
+        if not t:
+            continue
+        if _PLACEHOLDER_RE.match(t):
+            continue
+        if len(t) > 16:
+            continue
+        if not re.search(r"[A-Z0-9]", t) or not re.search(r"\d", t):
+            continue
+        return t
+    return ""
+
+
 def fallback_title(specifics, fitment):
-    """Compose a sensible fallback title when the model emitted none (rare
-    — usually means the input data package was empty). Industry pattern:
-    <Part Type> for <Year-Range Make/Model> (<Placement>). Cap at 80 chars."""
-    type_val = next((v for k, v in (specifics or []) if k == "Type"), None)
-    place_val = next((v for k, v in (specifics or []) if k == "Placement on Vehicle"), None)
-    fm = (fitment or "")
-    year_m = re.search(r"\b(?:19|20)\d{2}\b", fm)
-    year = year_m.group(0) if year_m else ""
-    title = type_val or "Auto Part"
-    if year:
-        title += f" for {year}"
+    """Compose a sensible fallback title when the model emitted no usable
+    title. Three signals in priority:
+      1. The longest fitment line (gives Year-Range + Make/Model).
+      2. Item Specifics[Type] for the part-type noun.
+      3. Item Specifics[Placement on Vehicle] for the placement suffix.
+    Result: <Type> <with-OEM-token?> for <Year-Range Make/Model>, <Placement>."""
+    spec_map = {k: v for k, v in (specifics or [])}
+    type_val = (spec_map.get("Type") or "Auto Part").strip()
+    place_val = (spec_map.get("Placement on Vehicle") or "").strip()
+    mpn = (spec_map.get("MPN") or "").strip()
+
+    f_lines = [l.strip() for l in re.split(r";|\n", (fitment or ""))
+               if l.strip() and re.match(r"^\s*\(?(?:19|20)\d{2}", l.strip())]
+    f_main = sorted(f_lines, key=len, reverse=True)[0] if f_lines else ""
+
+    year_range = ""
+    make_model = ""
+    if f_main:
+        y_m = re.search(r"\b(?:19|20)\d{2}\s*[-–—]\s*(?:(?:19|20)\d{2}|\d{2})\b", f_main)
+        if y_m:
+            year_range = y_m.group(0).replace(" ", "")
+        after = f_main.split(y_m.group(0) if y_m else "", 1)[1] if y_m else f_main
+        trim = after.split(" (")[0].strip()
+        cap = [w for w in trim.split() if re.match(r"^[A-Z][A-Za-z0-9-]+$", w)]
+        make_model = " ".join(cap[:2]).strip()
+
+    title = type_val
+    oem = _first_real_oem_token(
+        spec_map.get("OEM Part Number") or spec_map.get("Interchange Part Number") or mpn
+    )
+    if oem:
+        title += " " + oem
+    if year_range or make_model:
+        title += " for " + (year_range + " " if year_range else "") + make_model
+        title = title.strip()
     if place_val:
-        title += f", {place_val}"
-    return title[:80]
+        title += ", " + place_val
+    if len(title) > 80:
+        title = title[:80].rstrip(", \t\n")
+    return title
 
 
 # ---------- 白名单校验（与 cmd_verify 同逻辑） ----------
