@@ -980,4 +980,43 @@ ok("[16d] CL: fitment recovered from package (4 Hyundai/Kia rows)",
    rCl.fitment);
 ok("[16e] CL: ok:true (rich package, not degraded)", rCl.ok === true, `ok=${rCl.ok}`);
 
+// [17] Generic tiny-package + ALL-echo LLM — must trip the degradation
+// guard even after fallbackSpecifics() pushes the eBay-default Brand=
+// Unbranded + Warranty=Does Not Apply placeholders. SKU 93856129 follow-up
+// (next user screenshot): package = "Package Contents:\n1x Black Power
+// Heated Mirror with Signal Light" (65 chars, accepted by the 40-char
+// gate), LLM returns all-echo. Previous Python `degraded` check used the
+// raw `not specifics_final` and missed the placeholder rows — so the
+// Python runtime returned ok:true with titles[0]=='Auto Part', category=='-'
+// and an empty fitment. The frontend then threw "HTTP 200" because it
+// saw ok:false from the JSON. The JS runtime already had the PLACEHOLDER
+// filter; this commit brings the Python runtime into lock-step.
+const PM_PKG = "Package Contents:\n1x Black Power Heated Mirror with Signal Light";
+const PM_ECHO_LLM = `1. Three Cassini-optimized titles
+2. Item Specifics
+3. Fitment
+4. Five bullet selling points
+5. Description first paragraph
+6. Package Includes
+7. Suggested eBay category path
+-- verify in the eBay Sell flow before publishing.
+8. Notes to Seller`;
+const rPm = buildResult(PM_PKG, PM_ECHO_LLM, "gemini-3.1-flash-lite", 2.4, "100/50");
+ok("[17a] PM: titles[0] is the placeholder 'Auto Part'",
+   rPm.titles[0]?.text === "Auto Part",
+   rPm.titles[0]?.text);
+ok("[17a] PM: fallbackSpecifics still pushes Brand=Unbranded + Warranty=Does Not Apply",
+   rPm.specifics.some(([k, v]) => k === "Brand" && v === "Unbranded") &&
+   rPm.specifics.some(([k, v]) => k === "Warranty" && v === "Does Not Apply"),
+   JSON.stringify(rPm.specifics));
+ok("[17b] PM: degraded guard FIRES (ok:false) despite placeholder specifics",
+   rPm.ok === false,
+   `ok=${rPm.ok}`);
+ok("[17b] PM: warning explains the failure to the seller",
+   typeof rPm.warning === "string" && /regenerate|verify/i.test(rPm.warning),
+   rPm.warning);
+ok("[17b] PM: fitment is '-' (no usable vehicle info in pkg)",
+   rPm.fitment === "-",
+   rPm.fitment);
+
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);

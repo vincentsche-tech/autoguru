@@ -938,10 +938,25 @@ def api_generate(pkg_text: str) -> dict:
         if synth:
             titles = [{"text": synth, "len": len(synth)}]
     # Degradation guard: if the model returned essentially nothing usable
-    # (no valid title AND no item specifics AND no selling points AND no
+    # (no real title AND no item specifics AND no selling points AND no
     # fitment), flag the result instead of silently returning a placeholder
     # "Auto Part" listing the seller might publish by mistake.
-    degraded = ((not titles) or (len(titles) == 1 and titles[0]["text"] == "Auto Part")) and (not specifics_final) and (not bullets) and fitment == "-"
+    #
+    # Placeholder-specifics filter (mirrors lib/listing.js): _fallback_specifics
+    # always pushes Brand=Unbranded + Warranty=Does Not Apply (eBay-required
+    # defaults), so a naked-empty package still has 2 specifics rows and the
+    # naive `not specifics_final` check would never fire. Filter those
+    # placeholder values before counting real rows.
+    _PLACEHOLDER_SPEC_VALUES = {"Unbranded", "Does Not Apply"}
+    _real_spec_count = sum(
+        1 for _, v in (specifics_final or []) if (v or "").strip() not in _PLACEHOLDER_SPEC_VALUES
+    )
+    degraded = (
+        ((not titles) or (len(titles) == 1 and titles[0]["text"] == "Auto Part"))
+        and _real_spec_count == 0
+        and (not bullets)
+        and fitment == "-"
+    )
     result = {
         "ok": False if degraded else True, "model": model, "seconds": round(secs, 1), "tokens": tokens,
         "titles": titles,
