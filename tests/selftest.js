@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildWhitelist, verifyOutput, splitSections, listItems, kvItems, fitmentLines, para, inferCategoryPath, buildHtml, buildPrompt, buildResult, extractPkgFitment, inferPartTypeFromPkg } from "../lib/listing.js";
+import { buildWhitelist, verifyOutput, splitSections, listItems, kvItems, fitmentLines, para, inferCategoryPath, buildHtml, buildPrompt, buildResult, extractPkgFitment, inferPartTypeFromPkg, fallbackSpecifics, fallbackTitle, looksLikeCategoryEcho, stripCategoryEchoTail } from "../lib/listing.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG = JSON.parse(
@@ -804,5 +804,122 @@ ok("[14] HTML escapes the category echo (no '--verify' leak)",
 ok("[14] fallback title is meaningful (starts with Air Suspension Strut)",
    /^Air Suspension Strut\b/.test(rMbEcho.titles[0]?.text || ""),
    rMbEcho.titles[0]?.text);
+
+// =====================================================================
+// SKU 52248592 regression: Ford F-Series Fuel Pump (degraded output).
+// Three independent fixes verified here:
+//   (A) stripCategoryEchoTail handles "<real path> — verify..." hybrids
+//       the old length>120 short-circuit silently passed through.
+//   (B) fallbackTitle pulls Make/Model from either side of the year
+//       range — the model emitted "FORD SUPER 2011-2016" (make-first),
+//       which the old "must start with year" regex rejected.
+//   (C) fallbackSpecifics recovers Interchange Part Number from a real
+//       52248592 supplier package so Item Specifics is never just "-".
+// =====================================================================
+
+// (A) unit tests for the new echo-tail stripper
+ok("[15a] looksLikeCategoryEcho: pure echo (-- verify in the eBay Sell flow) is caught",
+   looksLikeCategoryEcho("-- verify in the eBay Sell flow before publishing."),
+   "did not match");
+ok("[15a] looksLikeCategoryEcho: 140-char hybrid string IS now caught (patterns match the substring)",
+   looksLikeCategoryEcho("eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Fuel Pumps — verify in the eBay Sell flow before publishing."),
+   "old length>120 guard let this through silently");
+ok("[15b] stripCategoryEchoTail: chops the echo tail off a 140-char hybrid",
+   stripCategoryEchoTail("eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Fuel Pumps — verify in the eBay Sell flow before publishing.") ===
+     "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Fuel Pumps");
+ok("[15b] stripCategoryEchoTail: returns '' when the whole string is echo",
+   stripCategoryEchoTail("-- verify in the eBay Sell flow before publishing.") === "");
+ok("[15b] stripCategoryEchoTail: leaves a clean path untouched",
+   stripCategoryEchoTail("eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Fuel Pumps") ===
+     "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Fuel Pumps");
+
+// (B) fallbackTitle harvest-Make/Model from either side of the year range
+ok("[15c] fallbackTitle: year-first fitment still works (2011-2018 Ford Edge)",
+   /Ford Edge/.test(fallbackTitle(
+     [["Type", "Engine Valve Cover"]],
+     "2011-2018 Ford Edge V6 3.5L (Left & Right)",
+     ""
+   )));
+ok("[15c] fallbackTitle: make-first fitment also works (FORD SUPER 2011-2016)",
+   /FORD SUPER/.test(fallbackTitle(
+     [["Type", "Fuel Pump"]],
+     "FORD SUPER 2011-2016",
+     ""
+   )),
+   fallbackTitle([["Type", "Fuel Pump"]], "FORD SUPER 2011-2016", ""));
+ok("[15c] fallbackTitle: make-first with year-range 2011-2016 has a real Year Range token",
+   /2011-2016/.test(fallbackTitle(
+     [["Type", "Fuel Pump"]],
+     "FORD SUPER 2011-2016",
+     ""
+   )),
+   fallbackTitle([["Type", "Fuel Pump"]], "FORD SUPER 2011-2016", ""));
+
+// (C) full buildResult smoke test for the 52248592-style SKU
+const FP_PKG = [
+  "Electric Fuel Pump Module Assembly for 2011-2016 FORD F-250 F-350 SUPER DUTY 6.2L 6.7L V8 V10",
+  "Application",
+  "fit for FORD SUPER DUTY 2011-2016",
+  "fit for FORD F-250 SUPER DUTY 2011-2016",
+  "fit for FORD F-350 SUPER DUTY 2011-2016",
+  "Interchange Part Number:",
+  "52248592, 52129886AA, 52129886, 52129797AA, 52129797, 5C3Z9H307BA, 5C3Z9H307BB, 5C3Z9H307BC",
+  "OE/Part number:",
+  "52248592",
+  "Brand: Unbranded",
+  "Placement on Vehicle: Front",
+  "Fitment Type: Direct Replacement",
+  "Specification:",
+  "Voltage: 12V",
+  "Flow Rate: 130 L/h",
+  "Pressure: 3.5 bar",
+  "Inlet Diameter: 8mm",
+  "Outlet Diameter: 8mm",
+  "Feature:",
+  "- High quality and durable",
+  "- Stable performance",
+  "- Easy to install",
+  "Notice:",
+  "- Please confirm the OEM part number before purchasing."
+].join("\n");
+
+// Echo-tailing category in the LLM output (the exact bug we hit)
+const FP_ECHO_LLM = `1. Three Cassini-optimized titles
+2. Item Specifics
+3. Fitment
+4. Five bullet selling points
+5. Description first paragraph
+6. Package Includes
+7. Suggested eBay category path
+eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Fuel Pumps — verify in the eBay Sell flow before publishing.
+8. Notes to Seller`;
+
+const rFp = buildResult(FP_PKG, FP_ECHO_LLM, "gemini-3.1-flash-lite", 2.7, "582/657");
+ok("[15d] FP echo-tail: category has NO '-- verify' or '— verify' substring",
+   !/verify in the eBay Sell flow|— verify|-- verify/i.test(rFp.category),
+   rFp.category);
+ok("[15d] FP echo-tail: category keeps the leading real path (Fuel Pumps)",
+   /Fuel Pumps/.test(rFp.category) && !/—|--/.test(rFp.category),
+   rFp.category);
+
+const FP_DEG_LLM = `1. Three Cassini-optimized titles
+2. Item Specifics
+3. Fitment
+4. Five bullet selling points
+5. Description first paragraph
+6. Package Includes
+7. Suggested eBay category path
+— verify in the eBay Sell flow before publishing.
+8. Notes to Seller`;
+const rFpDeg = buildResult(FP_PKG, FP_DEG_LLM, "gemini-3.1-flash-lite", 2.7, "582/657");
+ok("[15e] FP degraded: fallback title includes Fuel Pump + 2011-2016 (make-first fitment)",
+   /Fuel Pump/.test(rFpDeg.titles[0]?.text || "") && /2011-2016/.test(rFpDeg.titles[0]?.text || ""),
+   rFpDeg.titles[0]?.text);
+ok("[15e] FP degraded: title is NOT 'Auto Part' placeholder",
+   rFpDeg.titles[0]?.text !== "Auto Part",
+   rFpDeg.titles[0]?.text);
+ok("[15e] FP degraded: fallbackSpecifics has Interchange Part Number row",
+   rFpDeg.specifics.some(([k, v]) => k === "Interchange Part Number" && v.length > 0),
+   JSON.stringify(rFpDeg.specifics.map(([k]) => k)));
 
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);

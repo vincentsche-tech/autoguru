@@ -378,12 +378,25 @@ def _infer_category_path(specifics):
 # for the whole section body, which `para()` happily surfaced into the UI.
 # Mirrors `looksLikeCategoryEcho()` in lib/listing.js.
 _CATEGORY_ECHO_RE_LIST = [
-    re.compile(r"^\s*[—\-]+\s*verify\b", re.I),
+    re.compile(r"^\s*[—\-+]\s*verify\b", re.I),
     re.compile(r"\bverify\s+in\s+the\s+ebay\s*sell\s*flow\b", re.I),
     re.compile(r"\b(?:seller|please)\s+verify\b", re.I),
     re.compile(r"^\s*verify\b", re.I),
     re.compile(r"\bsuggested\s+ebay\s+category\s+path\b", re.I),
     re.compile(r"^\s*e\.?g\.?\s+", re.I),
+]
+# Anchors for stripping an echo TAIL off a category path. SKU 52248592
+# regression: the LLM emitted "<real path> — verify in the eBay Sell flow
+# before publishing." (~140 chars). The length>120 short-circuit in
+# _looks_like_category_echo() let it slip through, and the whole hybrid
+# string was passed to the UI. These anchors let us chop the echo suffix
+# and keep the leading real path.
+_CATEGORY_ECHO_ANCHORS = [
+    re.compile(r"[—\-+]\s*verify\b.*$", re.I),
+    re.compile(r"\bverify\s+in\s+the\s+ebay\s*sell\s*flow\b.*$", re.I),
+    re.compile(r"\b(?:seller|please)\s+verify\b.*$", re.I),
+    re.compile(r"\bsuggested\s+ebay\s+category\s+path\b.*$", re.I),
+    re.compile(r"\bverify\s+this\s+before\s+publishing\b.*$", re.I),
 ]
 
 
@@ -391,9 +404,27 @@ def _looks_like_category_echo(s):
     if not s:
         return False
     t = s.strip()
-    if not t or len(t) > 120:
+    if not t:
         return False
+    # Length guard removed: SKU 52248592 sent a 140-char "<path> — verify..."
+    # hybrid, which the old len>120 short-circuit silently passed through.
     return any(rx.search(t) for rx in _CATEGORY_ECHO_RE_LIST)
+
+
+def _strip_category_echo_tail(s):
+    """Trim a trailing echo suffix off a category path string. Returns ""
+    when the whole string was echo. Mirrors `stripCategoryEchoTail()` in
+    lib/listing.js."""
+    if not s:
+        return ""
+    out = s.strip()
+    for rx in _CATEGORY_ECHO_ANCHORS:
+        m = rx.search(out)
+        if m:
+            out = out[:m.start()].strip()
+            break
+    out = re.sub(r"[\s,;:.\-—]+$", "", out).strip()
+    return out
 
 
 # Last-resort Item Specifics recovery from the RAW data package. Used when
@@ -707,8 +738,14 @@ def fallback_title(specifics, fitment, pkg_text=""):
     place_val = (spec_map.get("Placement on Vehicle") or "").strip()
     mpn = (spec_map.get("MPN") or "").strip()
 
+    # SKU 52248592 regression: the model emitted "FORD SUPER 2011-2016" with
+    # Make/Model BEFORE the year range. The old "must start with a year"
+    # regex rejected the line; the year-side MM extraction then had
+    # nothing to pull. Now any line containing a 19xx/20xx token counts,
+    # and MM is harvested from whichever side of the year range carries
+    # capitalised tokens.
     f_lines = [l.strip() for l in re.split(r";|\n", (fitment or ""))
-               if l.strip() and re.match(r"^\s*\(?(?:19|20)\d{2}", l.strip())]
+               if l.strip() and re.search(r"\b(?:19|20)\d{2}\b", l.strip())]
     f_main = sorted(f_lines, key=len, reverse=True)[0] if f_lines else ""
 
     year_range = ""
@@ -717,10 +754,21 @@ def fallback_title(specifics, fitment, pkg_text=""):
         y_m = re.search(r"\b(?:19|20)\d{2}\s*[-–—]\s*(?:(?:19|20)\d{2}|\d{2})\b", f_main)
         if y_m:
             year_range = y_m.group(0).replace(" ", "")
-        after = f_main.split(y_m.group(0) if y_m else "", 1)[1] if y_m else f_main
-        trim = after.split(" (")[0].strip()
-        cap = [w for w in trim.split() if re.match(r"^[A-Z][A-Za-z0-9-]+$", w)]
-        make_model = " ".join(cap[:2]).strip()
+            idx = f_main.find(y_m.group(0))
+            before = f_main[:idx].strip()
+            after = f_main[idx + len(y_m.group(0)):].strip()
+        else:
+            before = ""
+            after = f_main
+        def _extract_mm(s):
+            trim = s.split(" (")[0].strip()
+            if not trim:
+                return ""
+            cap = [w for w in trim.split() if re.match(r"^[A-Z][A-Za-z0-9-]+$", w)]
+            return " ".join(cap[:2]).strip()
+        mm_before = _extract_mm(before)
+        mm_after = _extract_mm(after)
+        make_model = mm_before or mm_after
 
     title = type_val
     oem = _first_real_oem_token(
@@ -849,15 +897,22 @@ def api_generate(pkg_text: str) -> dict:
         fb = _fallback_specifics(pkg_text, fitment)
         if fb:
             specifics_final = fb
-    # Suggested eBay category path: model output wins if it looks real,
-    # else infer from Item Specifics[Type]. The echo guard below drops the
-    # common case where the model regurgitates the prompt’s
-    # "— verify in the eBay Sell flow before publishing." instruction as
-    # the entire section body — that’s not a category, it’s instruction
-    # text masquerading as content.
+    # Suggested eBay category path. Three-layer safety (SKU 52248592
+    # regression — the LLM emitted "<real path> — verify in the eBay Sell
+    # flow before publishing." which the previous length>120 short-circuit
+    # in _looks_like_category_echo() silently let through):
+    #   1. LLM output wins if non-echo.
+    #   2. Even when non-echo, strip a trailing echo suffix via
+    #      _strip_category_echo_tail() so the leading real path survives.
+    #   3. Fall through to _infer_category_path() from Item Specifics[Type].
     raw_category = para(sec.get(7, ""))
+    cleaned_category = (
+        _strip_category_echo_tail(raw_category)
+        if raw_category and not _looks_like_category_echo(raw_category)
+        else ""
+    )
     category = (
-        (raw_category if (raw_category and not _looks_like_category_echo(raw_category)) else "")
+        cleaned_category
         or _infer_category_path(specifics_final)
         or _infer_category_path(_fallback_specifics(pkg_text, fitment))
         or "-"
