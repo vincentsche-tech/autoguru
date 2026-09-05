@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildWhitelist, verifyOutput, splitSections, listItems, kvItems, fitmentLines, para, inferCategoryPath, buildHtml, buildPrompt, buildResult } from "../lib/listing.js";
+import { buildWhitelist, verifyOutput, splitSections, listItems, kvItems, fitmentLines, para, inferCategoryPath, buildHtml, buildPrompt, buildResult, extractPkgFitment, inferPartTypeFromPkg } from "../lib/listing.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG = JSON.parse(
@@ -685,5 +685,58 @@ ok("WMS: bullets begin with prose (Constructed/Restores/Lightweight/Designed)", 
 ok("WMS: HTML does not contain '*-'", !rWms.html.includes("*-"));
 ok("WMS: HTML does not contain '- *-'", !rWms.html.includes("- *-"));
 ok("WMS: category inferred from Type (Window Switches)", /Window Switches/.test(rWms.category));
+
+// [13] Mercedes-Benz Air Suspension Strut (1663201313) — supplier package
+// uses `fit for ...` (no trailing s) and names the part in the Notice prose
+// ("air shock"). Two regressions fixed here:
+//   (a) FIT_CUE_RE only matched `fits for`, so `fit for` lines were missed
+//       and the fitment fallback returned [] (fitment rendered "-").
+//   (b) buildWhitelist() captured vehicle trims GL63AMG / GLS350D as fake
+//       part numbers (isNoise missed the letter-digit-letter shape).
+//   (c) fallbackTitle() hard-coded "Auto Part" when Item Specifics[Type]
+//       was missing; now it derives the part type from the package text.
+//   (d) Degradation guard: a critically empty result is flagged ok:false
+//       with a warning instead of silently returning "Auto Part".
+console.log("\n[13] Mercedes air strut: 'fit for' fitment, trim-noise, part-type fallback, degradation guard");
+const MB_PKG = [
+  "Application",
+  "fit for Mercedes-Benz GL (X166) GL350 GL450 GL500 GL63AMG 2012-2015",
+  "fit for Mercedes-Benz GLS (X166) GLS350d GLS450 GLS500 GLS550 2015-2019",
+  "Interchange Part Number:",
+  "1663201313, 1663205166, 1663205366, 166320536660, 166320536680, 1663205566, 166320556680, 1663206713, 1663206913, 1663207113",
+  "Specification:",
+  "Placement on Vehicle: Front left",
+  "Notice:",
+  "- These shock are aftermarket ones. They will replace the original air shock. Please double confim the compatibility as well as the OEM number before purchasing.",
+].join("\n");
+
+const mbWl = buildWhitelist("", MB_PKG);
+ok("[13a] whitelist excludes vehicle trim GL63AMG", !mbWl.includes("GL63AMG"), JSON.stringify(mbWl));
+ok("[13a] whitelist excludes vehicle trim GLS350D", !mbWl.includes("GLS350D"), JSON.stringify(mbWl));
+ok("[13a] whitelist keeps all 10 real interchange numbers (10- and 12-digit), trims excluded", mbWl.filter((n) => /^\d{10,12}$/.test(n)).length === 10, JSON.stringify(mbWl));
+
+const mbFit = extractPkgFitment(MB_PKG);
+ok("[13b] extractPkgFitment finds fitment rows from 'fit for' (was 0)", mbFit.length >= 2, JSON.stringify(mbFit));
+ok("[13b] recovered fitment carries a year range", mbFit.every((r) => /\d{4}-\d{4}/.test(r)), JSON.stringify(mbFit));
+
+ok("[13c] inferPartTypeFromPkg derives 'Air Suspension Strut' from 'air shock'",
+   inferPartTypeFromPkg(MB_PKG) === "Air Suspension Strut",
+   inferPartTypeFromPkg(MB_PKG));
+
+// Degraded (empty LLM) run — should still produce a meaningful title + fitment,
+// NOT the useless placeholder "Auto Part", because the package text is rich.
+const rMbDeg = buildResult(MB_PKG, "");
+ok("[13d] degraded run: title is the derived part type, not 'Auto Part'",
+   rMbDeg.titles[0]?.text === "Air Suspension Strut",
+   rMbDeg.titles[0]?.text);
+ok("[13d] degraded run: fitment recovered from package (not '-')",
+   rMbDeg.fitment !== "-" && /Mercedes/.test(rMbDeg.fitment),
+   rMbDeg.fitment);
+
+// Truly empty package — guard must fire.
+const rEmpty = buildResult("some random text with no structure at all", "");
+ok("[13e] empty package: ok:false (degradation guard)", rEmpty.ok === false);
+ok("[13e] empty package: warning present", typeof rEmpty.warning === "string" && rEmpty.warning.length > 0, rEmpty.warning);
+ok("[13e] empty package: title is the placeholder 'Auto Part'", rEmpty.titles[0]?.text === "Auto Part");
 
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);

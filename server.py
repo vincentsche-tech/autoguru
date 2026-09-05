@@ -430,7 +430,7 @@ def fitment_lines(block: str) -> list:
 
 
 _FIT_CUE_RE = re.compile(
-    r"(?:^|\n)\s*(?:fits\s+for|compatible\s+(?:with|for|vehicle|car|model|truck|fitment)|(?:vehicle\s+)?fitment\s+for|fitment\s*[:：]|application\s*[:：]|for\s+vehicle)\s*[:：]?\s*([^\n]+)",
+    r"(?:^|\n)\s*(?:fits?\s+for|compatible\s+(?:with|for|vehicle|car|model|truck|fitment)|(?:vehicle\s+)?fitment\s+for|fitment\s*[:：]|application\s*[:：]|for\s+vehicle)\s*[:：]?\s*([^\n]+)",
     re.IGNORECASE,
 )
 _FIT_YEAR_RE = re.compile(r"\b((?:19|20)\d{2})\s*[-–—]\s*((?:(?:19|20)\d{2})|\d{2})\b")
@@ -492,10 +492,8 @@ def _make_model_around(line: str, year_match) -> str:
     after = line[year_match.end():].strip()
 
     def _cap(s):
-        return " ".join(
-            w for w in re.split(r"\s+", s)
-            if re.match(r"^[A-Z][A-Za-z0-9-]+$", w)
-        )[:80]
+        words = [w for w in re.split(r"\s+", s) if re.match(r"^[A-Z][A-Za-z0-9-]+$", w)]
+        return " ".join(words[:3])
 
     return (_cap(before) + " " + _cap(after)).strip()
 
@@ -537,7 +535,45 @@ def _first_real_oem_token(csv):
     return ""
 
 
-def fallback_title(specifics, fitment):
+_PART_TYPE_KEYWORDS = [
+    [re.compile(r"\bair\s+suspension\s+strut|air\s+strut|air\s+shock\b", re.I), "Air Suspension Strut"],
+    [re.compile(r"\bstrut\b", re.I), "Strut"],
+    [re.compile(r"\bshock\s+absorber|shocks?\b", re.I), "Shock Absorber"],
+    [re.compile(r"\bcontrol\s+arm(s)?\b", re.I), "Control Arm"],
+    [re.compile(r"\bwater\s+pump(s)?\b", re.I), "Water Pump"],
+    [re.compile(r"\bwindow\s+(?:regulator|motor|switch)\b", re.I), "Window Regulator"],
+    [re.compile(r"\bpower\s+window\s+switch(es)?\b", re.I), "Power Window Switch"],
+    [re.compile(r"\bspark\s+plug(s)?\b", re.I), "Spark Plug"],
+    [re.compile(r"\bignition\s+coil(s)?\b", re.I), "Ignition Coil"],
+    [re.compile(r"\bheadlight(s)?\b|\btaillight(s)?\b|\bfog\s+light(s)?\b", re.I), "Light"],
+    [re.compile(r"\bengine\s+(?:valve\s+cover|cover)\b|\bvalve\s+cover\b", re.I), "Valve Cover"],
+    [re.compile(r"\balternator(s)?\b", re.I), "Alternator"],
+    [re.compile(r"\bstarter\s+motor\b|\bstarter\b", re.I), "Starter"],
+    [re.compile(r"\bbrake\s+(?:pad|rotor|caliper)\b|\bbrake\b", re.I), "Brake Part"],
+    [re.compile(r"\bradiator(s)?\b", re.I), "Radiator"],
+    [re.compile(r"\bball\s+joint(s)?\b", re.I), "Ball Joint"],
+    [re.compile(r"\bsway\s+bar\b|\bstabilizer\s+bar\b", re.I), "Sway Bar"],
+    [re.compile(r"\btie\s+rod\b", re.I), "Tie Rod"],
+    [re.compile(r"\bwheel\s+bearing\b", re.I), "Wheel Bearing"],
+    [re.compile(r"\bdoor\s+handle\b", re.I), "Door Handle"],
+    [re.compile(r"\bdoor\s+mirror\b|\bpower\s+mirror\b|\bside\s+mirror\b", re.I), "Mirror"],
+    [re.compile(r"\bbumper\b", re.I), "Bumper"],
+    [re.compile(r"\bfuel\s+pump\b", re.I), "Fuel Pump"],
+]
+
+
+def infer_part_type_from_pkg(pkg_text: str) -> str:
+    """Recover a part-type noun from the raw package text when the model
+    omitted Item Specifics[Type]. Mirrors inferPartTypeFromPkg() in
+    lib/listing.js."""
+    text = pkg_text or ""
+    for re_obj, noun in _PART_TYPE_KEYWORDS:
+        if re_obj.search(text):
+            return noun
+    return ""
+
+
+def fallback_title(specifics, fitment, pkg_text=""):
     """Compose a sensible fallback title when the model emitted no usable
     title. Three signals in priority:
       1. The longest fitment line (gives Year-Range + Make/Model).
@@ -545,7 +581,7 @@ def fallback_title(specifics, fitment):
       3. Item Specifics[Placement on Vehicle] for the placement suffix.
     Result: <Type> <with-OEM-token?> for <Year-Range Make/Model>, <Placement>."""
     spec_map = {k: v for k, v in (specifics or [])}
-    type_val = (spec_map.get("Type") or "Auto Part").strip()
+    type_val = (spec_map.get("Type") or infer_part_type_from_pkg(pkg_text) or "Auto Part").strip()
     place_val = (spec_map.get("Placement on Vehicle") or "").strip()
     mpn = (spec_map.get("MPN") or "").strip()
 
@@ -691,11 +727,16 @@ def api_generate(pkg_text: str) -> dict:
     notes = [n for n in list_items(sec.get(8, "")) if not _looks_like_echo(n) and not _is_category_path(n)]
     ver = verify_output(pkg_text, title, llm_text)
     if not titles:
-        synth = fallback_title(specifics, fitment)
+        synth = fallback_title(specifics, fitment, pkg_text)
         if synth:
             titles = [{"text": synth, "len": len(synth)}]
-    return {
-        "ok": True, "model": model, "seconds": round(secs, 1), "tokens": tokens,
+    # Degradation guard: if the model returned essentially nothing usable
+    # (no valid title AND no item specifics AND no selling points AND no
+    # fitment), flag the result instead of silently returning a placeholder
+    # "Auto Part" listing the seller might publish by mistake.
+    degraded = ((not titles) or (len(titles) == 1 and titles[0]["text"] == "Auto Part")) and (not specifics) and (not bullets) and fitment == "-"
+    result = {
+        "ok": False if degraded else True, "model": model, "seconds": round(secs, 1), "tokens": tokens,
         "titles": titles,
         "specifics": specifics,
         "fitment": fitment,
@@ -707,6 +748,12 @@ def api_generate(pkg_text: str) -> dict:
         "notes": notes,
         "verify": ver,
     }
+    if degraded:
+        result["warning"] = (
+            "⚠️ Model returned too little usable content — please regenerate. "
+            "Verify the source package contains a SKU / part number / vehicle fitment."
+        )
+    return result
 
 
 # ---------- HTTP ----------
