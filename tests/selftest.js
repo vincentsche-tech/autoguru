@@ -546,4 +546,92 @@ ok("inferCategoryPath(Quantum Flux Capacitor) returns real path",
 ok("inferCategoryPath(empty specifics) returns empty string",
    inferCategoryPath([]) === "");
 
+// [12] `*-` sub-bullet marker regression. SKU JPSU-6 (Jeep Comanche Fuel
+// Pump): the supplier data package uses markdown sub-bullet markers
+// (`*-`) and the LLM echoed that style into every title / selling
+// point / HTML block. stripPrefix() previously only matched a SINGLE
+// bullet char before whitespace, so `*- Foo` failed to strip and `*-`
+// leaked into the rendered Listing Report. The fix broadens the
+// bullet regex to any sequence of `-`/`*` chars before whitespace.
+console.log("\n[12] `*-` sub-bullet marker stripped from all output");
+const JPSU_PKG = [
+  "JPSU-6",
+  "JPSU-6P4.0",
+  "1987",
+  "1988",
+  "1989",
+  "1990",
+  "Jeep Comanche MJ 4.0L",
+  "Fuel Pump Module Assembly",
+  "Unbranded",
+].join("\n");
+const JPSU_LLM = `1. Titles.
+*- Fuel Pump Sending Unit JPSU-6 Jeep Comanche MJ 4.0L 1987-1990 Tank Assembly
+*- Fuel Pump Module JPSU-6P4.0 Jeep Comanche MJ 4.0L 1987-1990 Gas Tank Unit
+*- Fuel Pump Assembly JPSU-6 Jeep Comanche MJ 4.0L 1987-1990 Direct Replacement
+
+2. Item Specifics.
+**Brand:** Unbranded
+**MPN:** JPSU-6
+**OEM Part Number:** JPSU-6
+**Interchange Part Number:** JPSU-6P4.0
+**Placement on Vehicle:** Tank
+**Material:** Not Specified
+**Type:** Fuel Pump Module Assembly
+**Warranty:** Does Not Apply
+
+3. Fitment.
+1987-1990 Jeep Comanche MJ 4.0L
+
+4. Selling Points.
+*- Engineered for exact fitment to ensure seamless integration with your 1987-1990 Jeep Comanche 4.0L fuel system.
+*- Precision-manufactured as a direct replacement unit to maintain factory-grade fuel delivery performance and vehicle safety.
+*- High-reliability electrical components designed to meet the specific 12V requirements of your gasoline engine.
+*- Complete module assembly simplifies the repair process by providing a comprehensive, ready-to-install solution.
+
+5. Product Description.
+This premium fuel pump module assembly is specifically engineered for the 1987-1990 Jeep Comanche MJ 4.0L, ensuring a precise and reliable fit for your vehicle.
+
+6. Package Includes.
+1x Fuel Pump Sending Unit (As Pics Shown)
+
+7. Suggested eBay category path.
+eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air & Fuel Delivery > Fuel Pumps
+
+8. Notes to Seller.
+Verify fitment against the data package before publishing.`;
+const rJpsu = buildResult(JPSU_PKG, JPSU_LLM, "gemini-3.1-flash-lite", 4.2, "380/520");
+ok("JPSU: 3 titles parsed", rJpsu.titles.length === 3, JSON.stringify(rJpsu.titles.map((t) => t.text)));
+ok("JPSU: zero titles start with '*-'", rJpsu.titles.every((t) => !/^\*-/.test(t.text)));
+ok("JPSU: first title preserves brand+OEM token", /JPSU-6/.test(rJpsu.titles[0].text));
+ok("JPSU: 4 bullets parsed", rJpsu.bullets.length === 4);
+ok("JPSU: zero bullets start with '*-'", rJpsu.bullets.every((b) => !/^\*-/.test(b)));
+ok("JPSU: HTML does not contain '*-' anywhere", !rJpsu.html.includes("*-"));
+ok("JPSU: category path comes from LLM (correctly canonicalised)", /Air\s*&\s*Fuel Delivery.*Fuel Pumps/i.test(rJpsu.category), rJpsu.category);
+ok("JPSU: fitment preserved as 1987-1990 Jeep Comanche MJ 4.0L", /1987-1990\s+Jeep\s+Comanche\s+MJ\s+4\.0L/.test(rJpsu.fitment));
+
+// [12b] Short-package robustness: when LLM omits sec[6] (Package Includes)
+// or sec[8] (Notes), buildResult must not crash. The previous `[]` array
+// fallback for the missing section passed an array to listItems(), which
+// then failed on `(array).split(/\r?\n/)`. Fixed to `""` string fallback.
+console.log("\n[12b] short-package (missing sec[6] / sec[8]) does not crash");
+const SHORT_LLM = `1. Titles.
+** Fuel Pump JPSU-6 Jeep Comanche 1987-1990
+** Fuel Pump Module JPSU-6P4.0 Jeep 1987-1990
+** Fuel Pump Assembly JPSU-6 Direct Fit 1987-1990
+
+2. Item Specifics.
+**Brand:** Unbranded
+**Type:** Fuel Pump Module Assembly
+
+3. Fitment.
+1987-1990 Jeep Comanche MJ 4.0L
+
+5. Product Description.
+Premium fuel pump module.`;
+const rShort = buildResult(JPSU_PKG, SHORT_LLM);
+ok("Short: buildResult returns ok:true (no crash on missing sec[6]/sec[8])", rShort.ok === true);
+ok("Short: package_includes defaults to empty array", Array.isArray(rShort.package_includes) && rShort.package_includes.length === 0);
+ok("Short: notes defaults to empty array", Array.isArray(rShort.notes) && rShort.notes.length === 0);
+
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);

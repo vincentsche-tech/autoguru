@@ -207,12 +207,18 @@ def list_items(block: str) -> list:
         ln = raw.strip()
         if not ln or ln.upper() == "NONE":
             continue
-        # Bullet, numbered, arrow, or unicode-bullet prefix. The `>>?` covers
-        # the eBay 79472025 regression where the supplier package uses `>>`
-        # markers and the LLM echoes that style for titles / selling points.
+        # Bullet/marker prefix: any combination of `-` / `*` chars (covers
+        # single bullets `-` / `*`, markdown sub-bullet forms `*-` / `-*` /
+        # `**-`, em-dash style `--`) OR a single Unicode bullet. The `*-`
+        # form is a regression from supplier packages (SKU JPSU-6 Fuel
+        # Pump) where the LLM echoed the supplier's sub-bullet marker
+        # verbatim and the old single-char regex leaked `*-` into every
+        # title / bullet / HTML. The `>>?` covers the eBay 79472025
+        # regression where the supplier package uses `>>` markers.
         m = re.match(
             r"^\s*(?:"
-            r"[-*•▪▫■□▶▸►→›»]\s+"
+            r"[-*]+\s+"
+            r"|[•▪▫■□▶▸►→›»]\s+"
             r"|>+\s+"
             r"|\(?\d+[).]\s+"
             r"|Option\s*\d+\s*[:：.]\s+"
