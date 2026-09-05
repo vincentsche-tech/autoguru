@@ -323,6 +323,11 @@ _CATEGORY_RULES = [
     (re.compile(r"\bthrottle body\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Throttle Bodies"),
     (re.compile(r"\bfuel pump(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Fuel Pumps"),
     (re.compile(r"\bfuel injector(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Air Intake > Fuel Injectors"),
+    # Transmission & Drivetrain
+    (re.compile(r"\bclutch\s+kit(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Transmission & Drivetrain > Clutch Kits"),
+    (re.compile(r"\bclutch\s+(?:disc|facing)\b|\bclutch\s+disc(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Transmission & Drivetrain > Clutch Discs"),
+    (re.compile(r"\bpressure\s+plate(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Transmission & Drivetrain > Pressure Plates"),
+    (re.compile(r"\brelease\s+bearing(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Transmission & Drivetrain > Release Bearings"),
     # Electrical & Lighting
     (re.compile(r"\balternator(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Electrical & Lighting > Alternators"),
     (re.compile(r"\bstarter motor(s)?\b|\bstarter(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Electrical & Lighting > Starters"),
@@ -357,9 +362,17 @@ _CATEGORY_RULES = [
 ]
 
 
-def _infer_category_path(specifics):
+def _infer_category_path(specifics, pkg_text=None):
     spec_map = {k: v for k, v in (specifics or [])}
     type_val = (spec_map.get("Type") or "").strip()
+    if not type_val:
+        # SKU 93856129 regression: model returned an ALL-echo category and
+        # omitted Item Specifics[Type]. Derive the part type from the raw
+        # package text (e.g. "Clutch Disc / Pressure Plate / Release
+        # Bearing" -> "Clutch Kit") so the seller still gets a real path.
+        derived = infer_part_type_from_pkg(pkg_text or "")
+        if derived:
+            type_val = derived
     if not type_val:
         return ""
     t = type_val.lower()
@@ -712,6 +725,7 @@ _PART_TYPE_KEYWORDS = [
     [re.compile(r"\bdoor\s+mirror\b|\bpower\s+mirror\b|\bside\s+mirror\b", re.I), "Mirror"],
     [re.compile(r"\bbumper\b", re.I), "Bumper"],
     [re.compile(r"\bfuel\s+pump\b", re.I), "Fuel Pump"],
+    [re.compile(r"\bclutch\s+kit(s)?\b|\bclutch\s+disc(s)?\b|\bpressure\s+plate(s)?\b|\brelease\s+bearing(s)?\b|\bclutch\b", re.I), "Clutch Kit"],
 ]
 
 
@@ -913,8 +927,8 @@ def api_generate(pkg_text: str) -> dict:
     )
     category = (
         cleaned_category
-        or _infer_category_path(specifics_final)
-        or _infer_category_path(_fallback_specifics(pkg_text, fitment))
+        or _infer_category_path(specifics_final, pkg_text)
+        or _infer_category_path(_fallback_specifics(pkg_text, fitment), pkg_text)
         or "-"
     )
     notes = [n for n in list_items(sec.get(8, "")) if not _looks_like_echo(n) and not _is_category_path(n)]

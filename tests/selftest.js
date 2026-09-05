@@ -922,4 +922,62 @@ ok("[15e] FP degraded: fallbackSpecifics has Interchange Part Number row",
    rFpDeg.specifics.some(([k, v]) => k === "Interchange Part Number" && v.length > 0),
    JSON.stringify(rFpDeg.specifics.map(([k]) => k)));
 
+// [16] SKU 93856129 (Hyundai/Kia Clutch Kit, OEM 41300-26010) — ALL-echo
+// category + no Item Specifics[Type]. Regression: the model returned
+// "-- verify in the eBay Sell flow before publishing." for the whole sec[7]
+// body and omitted Type entirely, so the UI showed the echo verbatim. The
+// fallback chain must now derive "Clutch Kit" from the package's own
+// "Clutch Disc / Pressure Plate / Release Bearing" prose and land in the
+// Transmission & Drivetrain > Clutch Kits path.
+const CL_PKG = [
+  "1x Clutch Disc",
+  "1x Pressure Plate",
+  "1x Release Bearing",
+  "Application",
+  "Fit for Hyundai Accent 2012-2019",
+  "Fit for Hyundai Veloster 2012-2017",
+  "Fit for Kia Rio 2012-2018",
+  "Fit for Kia Soul 2010-2018",
+  "Interchange Part Number:",
+  "41300-26010, 41100-26010, 41421-32000",
+  "OEM Part Number:",
+  "41300-26010",
+  "Brand: Unbranded",
+  "Placement on Vehicle: Front",
+  "Notice:",
+  "- Professional installation is highly recommended.",
+].join("\n");
+const CL_ECHO_LLM = `1. Three Cassini-optimized titles
+2. Item Specifics
+3. Fitment
+4. Five bullet selling points
+5. Description first paragraph
+6. Package Includes
+7. Suggested eBay category path
+-- verify in the eBay Sell flow before publishing.
+8. Notes to Seller`;
+const rCl = buildResult(CL_PKG, CL_ECHO_LLM, "gemini-3.1-flash-lite", 2.4, "523/612");
+ok("[16a] CL: part type derived from pkg = 'Clutch Kit'",
+   inferPartTypeFromPkg(CL_PKG) === "Clutch Kit",
+   inferPartTypeFromPkg(CL_PKG));
+ok("[16a] CL: inferCategoryPath([], pkg) lands in Clutch Kits",
+   /Transmission & Drivetrain > Clutch Kits/.test(inferCategoryPath([], CL_PKG)),
+   inferCategoryPath([], CL_PKG));
+ok("[16b] CL: ALL-echo category is recognised as echo",
+   looksLikeCategoryEcho("-- verify in the eBay Sell flow before publishing."),
+   "not detected");
+ok("[16c] CL: final category = Clutch Kits path (no echo tail)",
+   /Clutch Kits/.test(rCl.category) && !/verify in the ebay sell flow/i.test(rCl.category),
+   rCl.category);
+ok("[16c] CL: title synthesised with part type (not 'Auto Part')",
+   /Clutch Kit/.test(rCl.titles[0]?.text || "") && rCl.titles[0]?.text !== "Auto Part",
+   rCl.titles[0]?.text);
+ok("[16c] CL: Item Specifics includes Type=Clutch Kit (from fallbackSpecifics)",
+   rCl.specifics.some(([k, v]) => k === "Type" && v === "Clutch Kit"),
+   JSON.stringify(rCl.specifics.map(([k, v]) => `${k}=${v}`)));
+ok("[16d] CL: fitment recovered from package (4 Hyundai/Kia rows)",
+   (rCl.fitment.match(/;/g) || []).length === 3 && /Hyundai/.test(rCl.fitment),
+   rCl.fitment);
+ok("[16e] CL: ok:true (rich package, not degraded)", rCl.ok === true, `ok=${rCl.ok}`);
+
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);
