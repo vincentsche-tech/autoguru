@@ -45,41 +45,103 @@ def build_web_prompt(text: str) -> str:
         sku="WEB", title=title, category="-", dims="-", desc=text[:3000])
 
 
-# ---------- LLM 输出解析 ----------
+# ---------- LLM 输出解析（强化版，与 lib/listing.js 完全对齐） ----------
 def split_sections(text: str) -> dict:
-    marks = []
-    for m in re.finditer(r"(?m)^\s*([1-8])\.\s+.*$", text):
-        marks.append((int(m.group(1)), m.start(), m.end()))
-    secs = {}
-    for i, (num, _s, e) in enumerate(marks):
-        end = marks[i + 1][1] if i + 1 < len(marks) else len(text)
-        secs.setdefault(num, text[e:end].strip())
-    return secs
+    src = text or ""
+    # 认多种 header： "1. Three..." / "**1.** Fitment" / "## 2. Item Specifics"
+    # 但绝不把 "1) Front Shock..."（节内编号列表项）或 "1. 2pcs..."（以数字开头的句子）
+    # 误判成 header。约束：数字+句号+空白+大写字母。
+    # 与 lib/listing.js 完全对齐：headerStart 存 header 行起始 \n 位置，
+    # body 结束于下一节 header 起始 \n 之前（绝不把下一节 header 文字吃进本节）。
+    re_sec = re.compile(r"(?:^|\n)\s*(?:[*#`]+)?\s*\b([1-8])\.[ \t]+(?=[A-Z])")
+    header_start = []
+    for m in re_sec.finditer(src):
+        num = int(m.group(1))
+        if any(mm[0] == num for mm in header_start):
+            continue
+        header_start.append([num, m.start()])
+    if not header_start:
+        return {}
+    header_eol = []
+    for num, hs in header_start:
+        eol = src.find("\n", max(hs + 1, 0))
+        header_eol.append([num, len(src) if eol == -1 else eol])
+    seen = {}
+    for i, (num, _hs) in enumerate(header_start):
+        if num in seen:
+            continue
+        body_start = header_eol[i][1] + 1
+        body_end = header_start[i + 1][1] if i + 1 < len(header_start) else len(src)
+        body = src[body_start:body_end].strip()
+        if body:
+            seen[num] = body
+    return seen
 
 
 def list_items(block: str) -> list:
-    items = []
-    for ln in block.splitlines():
-        ln = ln.strip()
-        if re.match(r"[-*•]\s+", ln):
-            items.append(re.sub(r"[-*•]\s+", "", ln, count=1).strip())
-    return [i for i in items if i and i.upper() != "NONE"]
+    out = []
+    re_item = re.compile(r"^\s*(?:[-*•]|\d+[).]\s+)?\s*(.+?)\s*$")
+    for raw in block.splitlines():
+        ln = raw.strip()
+        if not ln:
+            continue
+        m = re_item.match(ln)
+        if not m:
+            continue
+        item = re.sub(r"^[-*•]\s+", "", m.group(1)).strip()
+        ulen = len(re.sub(r"[*_`]", "", item).replace(" ", ""))
+        if ulen < 3:  # 丢弃 "1)" / "•" / "None" 之类噪声行
+            continue
+        if item.upper() == "NONE":
+            continue
+        out.append(item)
+    return out
 
 
 def kv_items(block: str) -> list:
     out = []
-    for ln in block.splitlines():
-        ln = ln.strip()
-        if re.match(r"[-*•]\s+", ln) and ":" in ln:
-            k, v = re.split(r":", re.sub(r"[-*•]\s+", "", ln, count=1), 1)
-            out.append([k.strip(), v.strip()])
+    re_label = re.compile(r"^\s*(?:\*+\s*)?([A-Z][A-Za-z0-9 /&\-]{1,40})\s*\**\s*[:：]\s*(.+?)\s*\**\s*$")
+    for raw in block.splitlines():
+        ln = raw.strip()
+        if not ln or ":" not in ln:
+            continue
+        no_bullet = re.sub(r"^[-*•]\s+", "", ln)
+        m = re_label.match(no_bullet)
+        if not m:
+            continue
+        label = m.group(1).strip()
+        value = m.group(2).strip()
+        if label and value and value.upper() != "NONE":
+            out.append([label, value])
     return out
 
 
 def para(block: str) -> str:
     lines = [l.strip() for l in block.splitlines() if l.strip()]
-    lines = [re.sub(r"\*\*|[-*•]\s+", "", l, count=1 if re.match(r"\s*[-*•]", l) else 0) for l in lines]
-    return " ".join(lines).strip()
+
+    def strip_prefix(l):
+        if re.match(r"\s*[-*•]", l):
+            return re.sub(r"^[-*•]\s+", "", l).strip()
+        return re.sub(r"\*\*", "", l).strip()
+
+    return " ".join(strip_prefix(l) for l in lines).strip()
+
+
+def fitment_lines(block: str) -> list:
+    raw = (block or "").strip()
+    if not raw:
+        return []
+    listed = list_items(raw)
+    if len(listed) >= 2:
+        return listed
+    # 单行连体型 "2016-2020 GLC300 ... 2018-2020 GLC350e ..."：按年份区间切分
+    split = re.split(
+        r"(?=\(?\s*(?:19|20)\d{2}\s*[-–—]\s*(?:19|20)?\d{2})", raw)
+    split = [l.strip().lstrip(":;,-–— ").strip() for l in split]
+    split = [l for l in split if l]
+    if len(split) >= 2:
+        return split
+    return [raw]
 
 
 # ---------- 白名单校验（与 cmd_verify 同逻辑） ----------
@@ -172,7 +234,8 @@ def api_generate(pkg_text: str) -> dict:
     titles = list_items(sec.get(1, ""))[:3]
     specifics = kv_items(sec.get(2, ""))
     fit_block = sec.get(3, "")
-    fitment = (list_items(fit_block) or [" ".join(fit_block.split())] or ["-"])[0]
+    fit_list = fitment_lines(fit_block)
+    fitment = (fit_list[0] if len(fit_list) == 1 else "; ".join(fit_list)) if fit_list else "-"
     bullets = list_items(sec.get(4, ""))[:5]
     desc = para(sec.get(5, ""))
     pkg_includes = list_items(sec.get(6, ""))

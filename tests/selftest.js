@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildWhitelist, verifyOutput, splitSections, listItems, kvItems, para, buildHtml, buildPrompt, buildResult } from "../lib/listing.js";
+import { buildWhitelist, verifyOutput, splitSections, listItems, kvItems, fitmentLines, para, buildHtml, buildPrompt, buildResult } from "../lib/listing.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG = JSON.parse(
@@ -117,5 +117,90 @@ const evil = buildResult(
   "0/0"
 );
 ok("supplier markup escaped", !/<img src=x/.test(evil.html));
+
+console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);
+
+// =====================================================================
+// Real-world captured bug: SKU 30867593 (Mercedes-Benz GLC shock strut)
+// Symptom: titles list empty, Item Specifics only one blank row, fitment
+// rendered as one huge unsplit line. Captured by user from the live Vercel
+// deployment. After this fix the parser must recover all three sections.
+// =====================================================================
+console.log("\n[4] real-world: GLC bunched-fitment recovery");
+const GLC = `1. Three Cassini-optimized titles
+1) Front Shock Strut Pair for 2016-2021 Mercedes-Benz W253 GLC300
+2) 2pcs Front Shock Strut Assemblies Fit for W253 GLC 2533200330
+3) Front Shocks & Struts Left Right for 2017-2021 Mercedes GLC
+2. Item Specifics
+* Brand: Unbranded
+* MPN: Does Not Apply
+* OEM Part Number: Does Not Apply
+* Interchange Part Number: 2533200330, 2533200430, 2533200530, 2533200630
+* Placement on Vehicle: Front, Left, Right
+* Material: Iron
+* Type: Shock Absorber
+* Manufacturer Part Number: 2533200330
+* Fitment Type: Direct Replacement
+* Warranty: 1 Year
+3. Fitment
+2016-2020 Mercedes-Benz GLC 300 4Matic Base Front Left/Right 2018-2020 Mercedes-Benz GLC 350e 4Matic Front Left/Right 2017-2020 Mercedes-Benz GLC 43 AMG 4Matic Front Left/Right 2018-2020 Mercedes-Benz GLC 63 AMG 4Matic Front Left/Right 2018-2020 Mercedes-Benz GLC 63 S AMG 4Matic Front Left/Right
+4. Five bullet selling points
+* Engineered for exact compatibility with W253 chassis GLC300, GLC43, GLC63 AMG.
+* Robust construction designed for rigorous performance demands.
+5. Description first paragraph
+Restore the precision handling and safety of your Mercedes-Benz W253 with this pair of front shock strut assemblies, engineered to replace OEM 2533200330 and 2533200430.
+6. Package Includes
+* 2x Front Shock Strut Assembly
+7. Suggested eBay category path
+eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Shocks & Struts
+8. Notes to Seller
+* None`;
+
+// Use the same verify path against a minimal but real-looking package so
+// the GLC OEM numbers are considered "in the package".
+const glcPkg = `Front Pair Shock Absorber Strut Assembly for Mercedes-Benz W253\nInterchange: 2533200330 2533200430 2533200530 2533200630`;
+const sec4 = splitSections(GLC);
+ok("GLC sections: all 8 present", Object.keys(sec4).length === 8, JSON.stringify(Object.keys(sec4)));
+ok("GLC titles: numbered 1) 2) 3) captured", listItems(sec4[1]).length === 3, JSON.stringify(listItems(sec4[1])));
+ok("GLC titles: not over 80 chars", listItems(sec4[1]).every((t) => t.length <= 80));
+ok("GLC specifics: 10 rows captured", kvItems(sec4[2]).length === 10, JSON.stringify(kvItems(sec4[2])));
+const fits = fitmentLines(sec4[3]);
+ok("GLC fitment: bunched line sliced to 5 vehicles", fits.length === 5, JSON.stringify(fits));
+ok(
+  "GLC fitment: every slice mentions GLC",
+  fits.every((f) => /GLC/.test(f)),
+  JSON.stringify(fits)
+);
+ok("GLC bullets: 2 captured", listItems(sec4[4]).length === 2);
+ok("GLC pkg-includes: 2x Shock Strut captured", listItems(sec4[6])[0].includes("2x"));
+ok("GLC category: Shocks & Struts", /Shocks\s*&\s*Struts/.test(para(sec4[7])));
+ok("GLC notes: None filtered out", listItems(sec4[8]).length === 0);
+
+// Full e2e through buildResult
+const rGLC = buildResult(glcPkg, GLC, "gemini-3.1-flash-lite", 4.5, "700/450");
+ok("GLC e2e: titles populated", rGLC.titles.length === 3);
+ok("GLC e2e: specifics table populated", rGLC.specifics.length === 10);
+ok("GLC e2e: fitment has 5 vehicles", /GLC 300|GLC 350e|GLC 43 AMG|GLC 63 AMG|GLC 63 S/.test(rGLC.fitment) && rGLC.fitment.split(/;\s*/).filter(Boolean).length === 5);
+ok(
+  "GLC e2e: html contains all 5 fitments",
+  ["GLC 300", "GLC 350e", "GLC 43 AMG", "GLC 63 AMG", "GLC 63 S"].every((m) => rGLC.html.includes(m))
+);
+ok(
+  "GLC e2e: html tables Warranty",
+  rGLC.html.includes("Warranty")
+);
+ok("GLC e2e: no part-number hallucination", rGLC.verify.hallucinated.length === 0, JSON.stringify(rGLC.verify));
+
+// Bold-label format that Gemini also produces sometimes
+console.log("\n[5] bold-label section 2 fallback");
+const BOLD = `2. Item Specifics
+**Brand:** Unbranded
+**MPN:** Does Not Apply
+**Placement on Vehicle:** Front, Left, Right
+**Type:** Shock Absorber`;
+const secB = splitSections(BOLD);
+const kvBold = kvItems(secB[2] || "");
+ok("bold-label: 4 rows captured", kvBold.length === 4, JSON.stringify(kvBold));
+ok("bold-label: Brand row ok", kvBold[0][0] === "Brand" && kvBold[0][1] === "Unbranded");
 
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);
