@@ -350,4 +350,59 @@ ok("Valve: html contains every fitment model", ["Ford Edge", "Ford F-150", "Ford
 ok("Valve: no echo strings leaked into html", !/Three Cassini|One attribute per line|Cover Brand/i.test(rValve.html));
 ok("Valve: verify passes (all 14 OEM numbers exist in package)", rValve.verify.hallucinated.length === 0, JSON.stringify(rValve.verify));
 
+// 79472025 — Running Board regression. Supplier package uses `>>` arrow
+// markers ("Notice >> Accessories: ...") and the LLM echoed that style for
+// titles AND selling points. The parser used to only recognise `* - •`
+// bullets, so both sections came out empty and the UI showed a 26-char
+// fallback title with no selling points. After this fix `>>` / `>` (and a
+// handful of common Unicode bullets) are accepted as bullet prefixes.
+console.log("\n[8] `>>` arrow bullets in titles + selling points (SKU 79472025)");
+const RUNBOARD_PKG = `Side Step Running Board for 2021-2024 Kia Sorento Left Right Aluminum Alloy ABS
+Direct bolt-on design—no drilling or modifications needed. With all hardware included fit for a quick, tool-free setup.
+Notice
+>> Accessories: You will get exactly as shown in the picture
+>> Professional installation is highly recommended.
+>> fit for any needs please contact us via eBay message or message`;
+const RUNBOARD_LLM = `1. Three Cassini-optimized titles
+>> Side Step Running Board for 2021-2024 Kia Sorento Left Right
+>> 2pc Aluminum Alloy Side Step Bar for 2021-2024 Kia Sorento Pair
+>> Running Board Nerf Bar Steps Compatible with 2021-2024 Kia Sorento
+2. Item Specifics
+* Brand: Unbranded
+* MPN: Does Not Apply
+* OEM Part Number: Does Not Apply
+* Interchange Part Number: Does Not Apply
+* Placement on Vehicle: Left, Right
+* Material: ABS, Aluminum Alloy
+* Type: Running Board
+* Warranty: Does Not Apply
+3. Fitment
+* 2021-2024 Kia Sorento (Left, Right)
+4. Five bullet selling points
+>> Direct bolt-on design with no drilling or modifications required
+>> Premium ABS + aluminum alloy construction built for daily driving
+>> All hardware included for a quick, tool-free setup
+>> Vehicle-specific fitment for 2021-2024 Kia Sorento left and right
+>> Professional installation recommended for the safest results
+5. Description first paragraph
+These premium running board side steps are precision-engineered to provide a seamless fit for 2021-2024 Kia Sorento models. Constructed from high-grade aluminum alloy and durable ABS, these rails offer a sophisticated aesthetic upgrade while significantly improving accessibility and side-body protection for your vehicle.
+6. Package Includes
+* 1x Left Running Board
+* 1x Right Running Board
+* Mounting hardware kit
+7. Suggested eBay category path
+eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Exterior Parts & Accessories > Running Boards & Step Bars
+8. Notes to Seller
+* None`;
+const rRun = buildResult(RUNBOARD_PKG, RUNBOARD_LLM, "gemini-3.1-flash-lite", 5.1, "380/520");
+ok("RunBoard: 3 titles recovered from `>>` bullets (not fallback)", rRun.titles.length === 3, JSON.stringify(rRun.titles.map((t) => t.text)));
+ok("RunBoard: titles carry real fitment (Kia Sorento + 2021-2024)", rRun.titles.every((t) => /Kia Sorento|2021-2024/.test(t.text)));
+ok("RunBoard: titles are 15-80 chars (no overly-thin fallback)", rRun.titles.every((t) => t.len >= 15 && t.len <= 80), JSON.stringify(rRun.titles.map((t) => t.len)));
+ok("RunBoard: 5 selling points recovered from `>>` bullets", rRun.bullets.length === 5, JSON.stringify(rRun.bullets));
+ok("RunBoard: bullets mention real package concepts (no echo)", rRun.bullets.some((b) => /bolt-on|aluminum|hardware/i.test(b)) && !/benefit[- ]driven/i.test(rRun.bullets.join(" ")));
+ok("RunBoard: fitment has the 2021-2024 Kia Sorento line", /2021-2024\s+Kia\s+Sorento/i.test(rRun.fitment), rRun.fitment);
+ok("RunBoard: HTML `<h3>Features</h3>` block has 5 selling points", /<h3>Features<\/h3>\s*<ul>[\s\S]*?<\/ul>/.test(rRun.html) && (rRun.html.match(/<h3>Features<\/h3>\s*<ul>([\s\S]*?)<\/ul>/) || ["", ""])[1].split("<li>").length - 1 === 5, "Features block size mismatch");
+ok("RunBoard: HTML escapes any embedded markup", !/<img\s+src=x/i.test(rRun.html));
+ok("RunBoard: verify passes (no fabricated part numbers)", rRun.verify.hallucinated.length === 0, JSON.stringify(rRun.verify));
+
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);

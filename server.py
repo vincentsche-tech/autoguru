@@ -202,8 +202,19 @@ def list_items(block: str) -> list:
         ln = raw.strip()
         if not ln or ln.upper() == "NONE":
             continue
-        # Bullet or numbered prefix
-        m = re.match(r"^\s*(?:[-*•]\s+|\(?\d+[).]\s+|Option\s*\d+\s*[:：.]\s+|Title\s*\d+\s*[:：.]\s+)(.+)$", ln)
+        # Bullet, numbered, arrow, or unicode-bullet prefix. The `>>?` covers
+        # the eBay 79472025 regression where the supplier package uses `>>`
+        # markers and the LLM echoes that style for titles / selling points.
+        m = re.match(
+            r"^\s*(?:"
+            r"[-*•▪▫■□▶▸►→›»]\s+"
+            r"|>+\s+"
+            r"|\(?\d+[).]\s+"
+            r"|Option\s*\d+\s*[:：.]\s+"
+            r"|Title\s*\d+\s*[:：.]\s+"
+            r")(.+)$",
+            ln,
+        )
         if not m:
             continue
         item = m.group(1).strip()
