@@ -1019,4 +1019,93 @@ ok("[17b] PM: fitment is '-' (no usable vehicle info in pkg)",
    rPm.fitment === "-",
    rPm.fitment);
 
+// [18] SKU 33762573 (Ford Heater Blower Motor) regression. The supplier
+// package names the part as "Heater Blower Motor" but uses the header
+// "Reference OE/OEM Number" (not "Interchange"/"OEM Part Number") for the
+// 7 identifiers, and states "Type: Standard" in Specification (a variant
+// attribute, NOT the part type). Before this fix:
+//   - PART_TYPE_KEYWORDS had no blower-motor entry → inferPartTypeFromPkg
+//     returned "" → fallbackTitle fell back to "Auto Part" and category
+//     collapsed to "-" ("- — verify in the eBay Sell flow before publishing.").
+//   - fallbackSpecifics did not recognise "Reference OE/OEM Number" → the 7
+//     real part numbers were dropped, leaving only Brand+Warranty placeholders.
+// After this fix the part type is recovered from the package prose, the
+// Interchange Part Number list is captured, and the category resolves to the
+// canonical Blower Motors leaf.
+console.log("\n[18] blower-motor part type + Reference OE/OEM Number recovery (SKU 33762573)");
+const BL_PKG = [
+  "Heater Blower Motor w/Fan fit for Ford Bronco F-150 F-250 F-350 1987-1996 F2TZ18527A",
+  "Application",
+  "fit for Ford Bronco 1987-1996",
+  "fit for Ford F150 1987-1996",
+  "fit for Ford F250 1987-1996",
+  "fit for Ford F350 1987-1996",
+  "Reference OE/OEM Number",
+  "700146, 40136-M, BN367, BM0249C, 3010133, F2TZ18527A, FOTZ18504A",
+  "Specification",
+  "Color: As the picture shows",
+  "Type: Standard",
+  "Material: Plastic + Metal",
+  "Feature",
+  "1. Superior materials and durability",
+  "4. Heater Blower Motor is made of high-quality material which is reliability, and durable.",
+  "Package included",
+  "1x Heater Blower Motor",
+].join("\n");
+
+ok("[18a] inferPartTypeFromPkg: package prose yields 'Heater Blower Motor'",
+   inferPartTypeFromPkg(BL_PKG) === "Heater Blower Motor",
+   inferPartTypeFromPkg(BL_PKG));
+
+const blSpecs = fallbackSpecifics(BL_PKG, "Ford Bronco 1987-1996");
+ok("[18b] fallbackSpecifics: Type recovered as Heater Blower Motor (not 'Standard')",
+   blSpecs.some(([k, v]) => k === "Type" && v === "Heater Blower Motor"),
+   JSON.stringify(blSpecs));
+ok("[18b] fallbackSpecifics: 7 Reference OE/OEM numbers captured as Interchange Part Number",
+   blSpecs.some(([k, v]) => k === "Interchange Part Number" && v.split(/,\s*/).length === 7),
+   JSON.stringify(blSpecs.find(([k]) => k === "Interchange Part Number")));
+ok("[18b] fallbackSpecifics: Material captured (Plastic + Metal)",
+   blSpecs.some(([k, v]) => k === "Material" && /Plastic/.test(v)),
+   JSON.stringify(blSpecs));
+ok("[18b] fallbackSpecifics: supplier 'Type: Standard' NOT treated as part Type",
+   !blSpecs.some(([k, v]) => k === "Type" && /standard/i.test(v)),
+   JSON.stringify(blSpecs));
+
+const BL_ECHO_LLM = `1. Three Cassini-optimized titles
+2. Item Specifics
+3. Fitment
+4. Five bullet selling points
+5. Description first paragraph
+6. Package Includes
+7. Suggested eBay category path
+— verify in the eBay Sell flow before publishing.
+8. Notes to Seller`;
+const rBl = buildResult(BL_PKG, BL_ECHO_LLM, "gemini-3.1-flash-lite", 3.8, "520/610");
+ok("[18c] BL: category resolves to canonical Blower Motors leaf (not '-')",
+   /Heating\s*&\s*Cooling\s*>\s*Blower Motors/.test(rBl.category),
+   rBl.category);
+ok("[18c] BL: category has NO echo tail ('— verify' / '-- verify')",
+   !/verify in the eBay Sell flow|— verify|-- verify/i.test(rBl.category),
+   rBl.category);
+ok("[18d] BL: title synthesised with real part type (NOT 'Auto Part')",
+   rBl.titles[0]?.text !== "Auto Part" && /Heater Blower Motor/.test(rBl.titles[0]?.text || ""),
+   rBl.titles[0]?.text);
+ok("[18d] BL: title carries a year range from fitment",
+   /\b(?:19|20)\d{2}-\d{2}\b|\b(?:19|20)\d{2}\b/.test(rBl.titles[0]?.text || ""),
+   rBl.titles[0]?.text);
+ok("[18e] BL: specifics include Type + Interchange + Material (real content, not just placeholders)",
+   rBl.specifics.some(([k]) => k === "Type") &&
+   rBl.specifics.some(([k]) => k === "Interchange Part Number") &&
+   rBl.specifics.some(([k]) => k === "Material"),
+   JSON.stringify(rBl.specifics));
+ok("[18e] BL: ok:true (realSpecificsCount > 0, so NOT flagged degraded)",
+   rBl.ok === true,
+   `ok=${rBl.ok}`);
+ok("[18f] BL: verify passes (all 7 numbers exist in package → no hallucination)",
+   rBl.verify.hallucinated.length === 0,
+   JSON.stringify(rBl.verify));
+ok("[18f] BL: HTML Specifications table lists the 7-number Interchange row",
+   /Interchange Part Number/.test(rBl.html) && /F2TZ18527A/.test(rBl.html),
+   rBl.html.slice(0, 400));
+
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);

@@ -353,6 +353,8 @@ _CATEGORY_RULES = [
     (re.compile(r"\bdoor armrest(s)?\b|\barmrest(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Armrests"),
     (re.compile(r"\bwindow regulator(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Window Regulators"),
     (re.compile(r"\bwindow motor(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Window Motors"),
+    # Heating & Cooling (blower motor was missing — SKU 33762573 regression)
+    (re.compile(r"\bheater\s+blower\s+motor\b|\bblower\s+motor\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Heating & Cooling > Blower Motors"),
     (re.compile(r"\bpower window switch(es)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Window Switches"),
     (re.compile(r"\bsun visor(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Interior Parts & Accessories > Sun Visors"),
     # Brakes
@@ -484,6 +486,20 @@ def _fallback_specifics(pkg_text: str, fitment: str):
         toks = _take_tokens(m.group(1))
         if toks:
             _push("OEM Part Number", ", ".join(toks))
+    # Reference OE/OEM Number (common supplier header; part numbers on the same
+    # line or the following line, comma-separated). SKU 33762573 regression:
+    # the package used "Reference OE/OEM Number" with no "Interchange"/"OEM
+    # Part Number" label, so 7 real identifiers were dropped. Feed them as
+    # Interchange Part Number so the seller keeps real data.
+    m = re.search(
+        r"reference\s+(?:oe\/?oem|oem)\s+number\b[^\n]*\n\s*([^\n]+)", pkg_text, re.I
+    ) or re.search(
+        r"reference\s+(?:oe\/?oem|oem)\s+number\b\s*[:：]?\s*([^\n]+)", pkg_text, re.I
+    )
+    if m:
+        toks = _take_tokens(m.group(1))
+        if toks:
+            _push("Interchange Part Number", ", ".join(toks))
     # Manufacturer Part Number
     m = re.search(r"manufacturer\s*(?:part\s*)?(?:number|no|#)\s*[:：]\s*([^\n]+)", pkg_text, re.I)
     if m:
@@ -508,6 +524,10 @@ def _fallback_specifics(pkg_text: str, fitment: str):
     m = re.search(r"fitment\s*type\s*[:：]\s*([^\n]+)", pkg_text, re.I)
     if m:
         _push("Fitment Type", m.group(1).strip())
+    # Material (often in a "Specification" block, e.g. "Material: Plastic + Metal").
+    m = re.search(r"material\s*[:：]\s*([^\n]+)", pkg_text, re.I)
+    if m:
+        _push("Material", m.group(1).strip())
     # Type from package text
     type_noun = infer_part_type_from_pkg(pkg_text)
     if type_noun:
@@ -703,29 +723,50 @@ def _first_real_oem_token(csv):
 
 _PART_TYPE_KEYWORDS = [
     [re.compile(r"\bair\s+suspension\s+strut|air\s+strut|air\s+shock\b", re.I), "Air Suspension Strut"],
+    [re.compile(r"\bheater\s+blower\s+motor\b|\bblower\s+motor\b|\bblower\b", re.I), "Heater Blower Motor"],
     [re.compile(r"\bstrut\b", re.I), "Strut"],
     [re.compile(r"\bshock\s+absorber|shocks?\b", re.I), "Shock Absorber"],
     [re.compile(r"\bcontrol\s+arm(s)?\b", re.I), "Control Arm"],
     [re.compile(r"\bwater\s+pump(s)?\b", re.I), "Water Pump"],
-    [re.compile(r"\bwindow\s+(?:regulator|motor|switch)\b", re.I), "Window Regulator"],
+    [re.compile(r"\boil\s+pan(s)?\b", re.I), "Oil Pan"],
+    [re.compile(r"\bhead\s+gasket(s)?\b", re.I), "Head Gasket"],
+    [re.compile(r"\bengine\s+(?:valve\s+cover|cover)\b|\bvalve\s+cover\b", re.I), "Valve Cover"],
+    [re.compile(r"\bwindow\s+regulator\b", re.I), "Window Regulator"],
     [re.compile(r"\bpower\s+window\s+switch(es)?\b", re.I), "Power Window Switch"],
+    [re.compile(r"\bwindow\s+motor\b", re.I), "Window Motor"],
     [re.compile(r"\bspark\s+plug(s)?\b", re.I), "Spark Plug"],
     [re.compile(r"\bignition\s+coil(s)?\b", re.I), "Ignition Coil"],
-    [re.compile(r"\bheadlight(s)?\b|\btaillight(s)?\b|\bfog\s+light(s)?\b", re.I), "Light"],
-    [re.compile(r"\bengine\s+(?:valve\s+cover|cover)\b|\bvalve\s+cover\b", re.I), "Valve Cover"],
+    [re.compile(r"\bair\s+filter(s)?\b", re.I), "Air Filter"],
+    [re.compile(r"\bmass\s+air\s+flow\b|\bmaf\s+sensor(s)?\b", re.I), "Mass Air Flow Sensor"],
+    [re.compile(r"\bthrottle\s+body\b", re.I), "Throttle Body"],
+    [re.compile(r"\bfuel\s+pump\b", re.I), "Fuel Pump"],
+    [re.compile(r"\bfuel\s+injector(s)?\b", re.I), "Fuel Injector"],
+    [re.compile(r"\bclutch\s+kit(s)?\b|\bclutch\s+disc(s)?\b|\bpressure\s+plate(s)?\b|\brelease\s+bearing(s)?\b|\bclutch\b", re.I), "Clutch Kit"],
     [re.compile(r"\balternator(s)?\b", re.I), "Alternator"],
     [re.compile(r"\bstarter\s+motor\b|\bstarter\b", re.I), "Starter"],
+    [re.compile(r"\bheadlight(s)?\b", re.I), "Headlight"],
+    [re.compile(r"\btaillight(s)?\b|\btail\s+light(s)?\b", re.I), "Tail Light"],
+    [re.compile(r"\bfog\s+light(s)?\b", re.I), "Fog Light"],
     [re.compile(r"\bbrake\s+(?:pad|rotor|caliper)\b|\bbrake\b", re.I), "Brake Part"],
     [re.compile(r"\bradiator(s)?\b", re.I), "Radiator"],
+    [re.compile(r"\bthermostat(s)?\b", re.I), "Thermostat"],
+    [re.compile(r"\bradiator\s+fan(s)?\b|\bfan\s+clutch(es)?\b|\bfan\b", re.I), "Fan Clutch"],
+    [re.compile(r"\bradiator\s+support(s)?\b", re.I), "Radiator Support"],
+    [re.compile(r"\bconvertible\s+top(s)?\b|\brear\s+window(s)?\b", re.I), "Convertible Top"],
+    [re.compile(r"\brunning\s+board(s)?\b|\bside\s+step(s)?\b|\bnerf\s+bar(s)?\b", re.I), "Running Board"],
+    [re.compile(r"\btonneau\s+cover(s)?\b", re.I), "Tonneau Cover"],
     [re.compile(r"\bball\s+joint(s)?\b", re.I), "Ball Joint"],
     [re.compile(r"\bsway\s+bar\b|\bstabilizer\s+bar\b", re.I), "Sway Bar"],
     [re.compile(r"\btie\s+rod\b", re.I), "Tie Rod"],
     [re.compile(r"\bwheel\s+bearing\b", re.I), "Wheel Bearing"],
+    [re.compile(r"\bwheel(s)?\b", re.I), "Wheel"],
     [re.compile(r"\bdoor\s+handle\b", re.I), "Door Handle"],
+    [re.compile(r"\bdoor\s+armrest(s)?\b|\barmrest(s)?\b", re.I), "Armrest"],
     [re.compile(r"\bdoor\s+mirror\b|\bpower\s+mirror\b|\bside\s+mirror\b", re.I), "Mirror"],
     [re.compile(r"\bbumper\b", re.I), "Bumper"],
-    [re.compile(r"\bfuel\s+pump\b", re.I), "Fuel Pump"],
-    [re.compile(r"\bclutch\s+kit(s)?\b|\bclutch\s+disc(s)?\b|\bpressure\s+plate(s)?\b|\brelease\s+bearing(s)?\b|\bclutch\b", re.I), "Clutch Kit"],
+    [re.compile(r"\bfender(s)?\b", re.I), "Fender"],
+    [re.compile(r"\bhood(s)?\b", re.I), "Hood"],
+    [re.compile(r"\bsun\s+visor(s)?\b", re.I), "Sun Visor"],
 ]
 
 
