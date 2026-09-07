@@ -1,4 +1,4 @@
-// EbayAutoGuru — POST /api/generate (Vercel Node serverless function)
+// ListKraft — POST /api/generate (Vercel Node serverless function)
 // Shares lib/listing.js with the Cloudflare Pages build, so both platforms
 // emit byte-identical results. Front end calls /api/generate unchanged.
 import { MODELS, MAX_TEXT, buildPrompt, buildResult } from "../lib/listing.js";

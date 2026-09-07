@@ -1,11 +1,11 @@
 {
-  "name": "ebayautoguru",
+  "name": "listkraft",
   "private": true,
   "type": "module",
-  "description": "EbayAutoGuru — free eBay Motors listing generator (static site + Cloudflare Pages Functions)",
+  "description": "ListKraft — free eBay Motors listing generator (static site + Cloudflare Pages Functions)",
   "scripts": {
     "dev": "wrangler pages dev public --kv RATE_KV",
-    "deploy:cf": "wrangler pages deploy public --project-name=ebayautoguru",
+    "deploy:cf": "wrangler pages deploy public --project-name=listkraft",
     "test": "node tests/selftest.js && node tests/handler.test.js && node tests/api.test.js"
   },
   "devDependencies": {

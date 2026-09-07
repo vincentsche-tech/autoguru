@@ -155,12 +155,12 @@ try {
   ok("no KV -> remaining omitted", r.jsonBody.remaining === undefined);
 
   console.log("\n[4] origin allow-list");
-  process.env.ALLOWED_ORIGINS = "ebayautoguru.com";
+  process.env.ALLOWED_ORIGINS = "listkraft.com";
   r = res();
   await handler(req({ headers: { origin: "https://evil.example" } }), r);
   ok("foreign origin -> 403", r.statusCode === 403);
   r = res();
-  await handler(req({ headers: { origin: "https://ebayautoguru.com" } }), r);
+  await handler(req({ headers: { origin: "https://listkraft.com" } }), r);
   ok("own origin -> 200", r.statusCode === 200);
   clearEnv();
   process.env.GEMINI_API_KEY = "k";

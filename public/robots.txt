@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://ebayautoguru.com/sitemap.xml
+Sitemap: https://listkraft.com/sitemap.xml

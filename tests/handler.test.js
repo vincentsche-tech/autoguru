@@ -104,12 +104,12 @@ try {
   console.log("\n[3] origin allow-list");
   r = await onRequestPost({
     request: req({ text: PKG_TEXT }, { Origin: "https://evil.example" }),
-    env: { GEMINI_API_KEY: "k", ALLOWED_ORIGINS: "ebayautoguru.com" },
+    env: { GEMINI_API_KEY: "k", ALLOWED_ORIGINS: "listkraft.com" },
   });
   ok("foreign origin -> 403", r.status === 403);
   r = await onRequestPost({
-    request: req({ text: PKG_TEXT }, { Origin: "https://ebayautoguru.com" }),
-    env: { GEMINI_API_KEY: "k", ALLOWED_ORIGINS: "ebayautoguru.com" },
+    request: req({ text: PKG_TEXT }, { Origin: "https://listkraft.com" }),
+    env: { GEMINI_API_KEY: "k", ALLOWED_ORIGINS: "listkraft.com" },
   });
   ok("own origin -> 200", r.status === 200, `got ${r.status}`);
 

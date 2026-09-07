@@ -1,10 +1,17 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
   "functions": {
     "api/generate.js": {
       "maxDuration": 60
     }
   },
+  "redirects": [
+    { "source": "/ebay-title-builder", "destination": "/ebay-seo-title-builder", "permanent": true },
+    { "source": "/ebay-title-builder.html", "destination": "/ebay-seo-title-builder", "permanent": true },
+    { "source": "/ebay-seo-auto-parts-guide", "destination": "/ebay-seo-guide", "permanent": true },
+    { "source": "/ebay-seo-auto-parts-guide.html", "destination": "/ebay-seo-guide", "permanent": true }
+  ],
   "headers": [
     {
       "source": "/(.*)",

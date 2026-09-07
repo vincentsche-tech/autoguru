@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""EbayAutoGuru 本地 worker（MVP）
+"""ListKraft 本地 worker（MVP）
 - 静态站点 + POST /api/generate：Gemini Flash-Lite 生成 + OEM 白名单校验
   逻辑与 cross-border-lister/listing_pipeline.py 完全同一套（直接 import）。
 - 用法（bash）:
@@ -1072,5 +1072,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"EbayAutoGuru dev worker -> http://127.0.0.1:{PORT}  (proxy={os.environ.get('GEMINI_PROXY') or 'off'})")
+    print(f"ListKraft dev worker -> http://127.0.0.1:{PORT}  (proxy={os.environ.get('GEMINI_PROXY') or 'off'})")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

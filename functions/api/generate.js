@@ -1,4 +1,4 @@
-// EbayAutoGuru — POST /api/generate (Cloudflare Pages Function)
+// ListKraft — POST /api/generate (Cloudflare Pages Function)
 // Inactive on Vercel (see api/generate.js). Kept so the project can move to
 // Pages later with no front-end change — both handlers share lib/listing.js.
 import { MODELS, MAX_TEXT, buildPrompt, buildResult } from "../../lib/listing.js";
