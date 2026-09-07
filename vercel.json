@@ -7,6 +7,7 @@
     }
   },
   "redirects": [
+    { "source": "https://www.listkraft.com/(.*)", "destination": "https://listkraft.com/$1", "permanent": true },
     { "source": "/ebay-title-builder", "destination": "/ebay-seo-title-builder", "permanent": true },
     { "source": "/ebay-title-builder.html", "destination": "/ebay-seo-title-builder", "permanent": true },
     { "source": "/ebay-seo-auto-parts-guide", "destination": "/ebay-seo-guide", "permanent": true },
