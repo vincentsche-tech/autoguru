@@ -288,6 +288,7 @@ footer a:hover{color:var(--acc)}
     var txt=document.getElementById('pkg').value.trim();
     errbox.hidden=true;
     if(txt.length<40){showErr('Paste the whole supplier data package first — title, part numbers, application list, description.');return;}
+    gtag('event','generate_click',{input_chars:txt.length});
     btn.disabled=true;report.hidden=true;calc.hidden=false;bar.style.width='0';
     var i=0,done=false;
     (function tick(){
@@ -300,9 +301,10 @@ footer a:hover{color:var(--acc)}
       .then(function(r){return r.json().then(function(j){if(!r.ok||!j.ok){var e=new Error(j.error||j.warning||('HTTP '+r.status));e.st=r.status;throw e;}return j;});})
       .then(function(j){
         done=true;bar.style.width='100%';render(j);
+        gtag('event','generate_success',{model:j.model||'unknown',seconds:j.seconds||0,titles_count:(j.titles||[]).length});
         setTimeout(function(){calc.hidden=true;btn.disabled=false;report.hidden=false;report.scrollIntoView({behavior:'smooth',block:'start'});},300);
       })
-      .catch(function(e){done=true;calc.hidden=true;btn.disabled=false;showErr(e.message||'Engine error',e.st===429?'Daily limit reached':null);});
+      .catch(function(e){done=true;calc.hidden=true;btn.disabled=false;gtag('event','generate_error',{http_status:e.st||0,error_kind:e.st===429?'daily_limit':'engine'});showErr(e.message||'Engine error',e.st===429?'Daily limit reached':null);});
   });
 
   function render(j){
@@ -340,6 +342,7 @@ footer a:hover{color:var(--acc)}
     var t=document.getElementById('htmlcode').textContent;
     if(navigator.clipboard){navigator.clipboard.writeText(t);}
     else{var ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}
+    gtag('event','copy_html');
     cp.textContent='Copied ✓';setTimeout(function(){cp.textContent='Copy';},1600);
   });
 })();
