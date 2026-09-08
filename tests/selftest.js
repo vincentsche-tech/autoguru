@@ -180,7 +180,7 @@ ok("GLC notes: None filtered out", listItems(sec4[8]).length === 0);
 const rGLC = buildResult(glcPkg, GLC, "gemini-3.1-flash-lite", 4.5, "700/450");
 ok("GLC e2e: titles populated", rGLC.titles.length === 3);
 ok("GLC e2e: specifics table populated", rGLC.specifics.length === 8);
-ok("GLC e2e: fitment has 5 vehicles", /GLC 300|GLC 350e|GLC 43 AMG|GLC 63 AMG|GLC 63 S/.test(rGLC.fitment) && rGLC.fitment.split(/;\s*/).filter(Boolean).length === 5);
+ok("GLC e2e: fitment has 5 vehicles", /GLC 300|GLC 350e|GLC 43 AMG|GLC 63 AMG|GLC 63 S/.test(rGLC.fitment) && rGLC.fitment.split(/\n+|(?:;\s*)/).filter(Boolean).length === 5);
 ok(
   "GLC e2e: html contains all 5 fitments",
   ["GLC 300", "GLC 350e", "GLC 43 AMG", "GLC 63 AMG", "GLC 63 S"].every((m) => rGLC.html.includes(m))
@@ -242,7 +242,7 @@ ok("Echo: titles synthesised via fallback (15-80 chars, no rule echo)", rEcho.ti
 ok("Echo: specs all real eBay fields, no rule text leaking", rEcho.specifics.every(([k, v]) => /^(Brand|MPN|OEM Part Number|Interchange Part Number|Placement on Vehicle|Material|Type|Manufacturer Part Number|Fitment Type|Warranty)$/.test(k)));
 ok("Echo: no spec value is prompt instruction text", rEcho.specifics.every(([k, v]) => !/Cover Brand|One attribute per line/i.test(v)));
 ok("Echo: 8 spec rows from a 9-distinct-source (MPN/MPN-merged duplicate dropped)", rEcho.specifics.length === 8, JSON.stringify(rEcho.specifics));
-ok("Echo: fitment has 5 vehicles from a single bunched section", rEcho.fitment.split(/;\s*/).filter(Boolean).length === 5);
+ok("Echo: fitment has 5 vehicles from a single bunched section", rEcho.fitment.split(/\n+/).filter(Boolean).length === 5);
 ok("Echo: bullets contain real selling point (no rule echo)", rEcho.bullets.length >= 1 && !/benefit[- ]driven/i.test(rEcho.bullets[0] || ""));
 ok("Echo: description is plain prose, no rule text", /Door Armrest Handle|88981548/.test(rEcho.description) && !/One attribute per line|benefit[- ]driven/i.test(rEcho.description));
 ok("Echo: category path surfaces Interior Door Handles", /Interior Door Handles/.test(rEcho.category));
@@ -283,7 +283,7 @@ const rTonn = buildResult(TONNEAU_PKG, TONNEAU_LLM, "gemini-3.1-flash-lite", 2.4
 ok("Tonneau: titles synthesised via fallback for no-OEM-no-title SKU", rTonn.titles.length >= 1 && rTonn.titles[0].text.length <= 80, JSON.stringify(rTonn.titles));
 ok("Tonneau: bullets never echo 'Selling Points'", !/selling points/i.test(rTonn.bullets.join(" ") + " " + rTonn.description));
 ok("Tonneau: Package Includes never contains a category path", !/ebay\s*motors\s*>/i.test(rTonn.package_includes.join(" ")));
-ok("Tonneau: fitment split on `;` (two rows, Chevrolet + GMC)", rTonn.fitment.split(/;\s*/).filter(Boolean).length === 2);
+ok("Tonneau: fitment split on `\n` (two rows, Chevrolet + GMC)", rTonn.fitment.split(/\n+/).filter(Boolean).length === 2);
 ok("Tonneau: html has no category-path leakage in Package Includes section", !/>eBay Motors\s*>/i.test(rTonn.html));
 
 // 86244195 — Engine Valve Cover, no usable titles in the model output.
@@ -345,7 +345,7 @@ ok("Valve: fallback title mentions the part Type", /Engine Valve Cover/i.test(rV
 ok("Valve: fallback title carries a year range (not just a single year)", /[-–—]\s*\d{2,4}/.test(rValve.titles[0].text), rValve.titles[0].text);
 ok("Valve: fallback title carries a Make/Model hint", /Ford|Lincoln/.test(rValve.titles[0].text), rValve.titles[0].text);
 ok("Valve: specifics has 8 canonical rows from real KV only", rValve.specifics.length === 8, JSON.stringify(rValve.specifics.map(([k]) => k)));
-ok("Valve: fitment split on `\\n` (19 vehicles, all present)", rValve.fitment.split(/;\s*/).filter(Boolean).length === 19);
+ok("Valve: fitment split on `\\n` (19 vehicles, all present)", rValve.fitment.split(/\n+|(?:;\s*)/).filter(Boolean).length === 19);
 ok("Valve: html contains every fitment model", ["Ford Edge", "Ford F-150", "Ford Mustang", "Ford Taurus", "Lincoln MKZ", "Lincoln MKT", "Lincoln Continental"].every((m) => rValve.html.includes(m)));
 ok("Valve: no echo strings leaked into html", !/Three Cassini|One attribute per line|Cover Brand/i.test(rValve.html));
 ok("Valve: verify passes (all 14 OEM numbers exist in package)", rValve.verify.hallucinated.length === 0, JSON.stringify(rValve.verify));
@@ -976,7 +976,7 @@ ok("[16c] CL: Item Specifics includes Type=Clutch Kit (from fallbackSpecifics)",
    rCl.specifics.some(([k, v]) => k === "Type" && v === "Clutch Kit"),
    JSON.stringify(rCl.specifics.map(([k, v]) => `${k}=${v}`)));
 ok("[16d] CL: fitment recovered from package (4 Hyundai/Kia rows)",
-   (rCl.fitment.match(/;/g) || []).length === 3 && /Hyundai/.test(rCl.fitment),
+   rCl.fitment.split(/\n+/).filter(Boolean).length === 4 && /Hyundai/.test(rCl.fitment),
    rCl.fitment);
 ok("[16e] CL: ok:true (rich package, not degraded)", rCl.ok === true, `ok=${rCl.ok}`);
 
