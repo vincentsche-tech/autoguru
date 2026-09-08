@@ -1151,4 +1151,95 @@ ok("[19d] PSP: Interchange Part Number captures 7 OE numbers",
    rPsp.specifics.some(([k, v]) => k === "Interchange Part Number" && v.split(/,\s*/).length === 7),
    JSON.stringify(rPsp.specifics.find(([k]) => k === "Interchange Part Number")));
 
+// [20] Polaris front differential (user-reported bug, Sept 2026): the data
+// package's first line is already a specific product title
+// ("Front Differential Replacement for Polaris Ranger Sportsman 400 500 800
+// Scrambler #1332731"), but the model returned a generic "Auto Part for
+// 2007-2013 Sportsman EFI" title and dropped the OEM + Make/Model. After
+// this fix buildResult() must lead with a NORMALIZATION of the package's
+// first line, not the weak model title.
+console.log("\n[20] normalize-from-package title (Polaris front differential)");
+const POL_PKG = [
+  "Front Differential Replacement for Polaris Ranger Sportsman 400 500 800 Scrambler #1332731",
+  "OEM Part Number: 1332731, 1332773, 1332829, 1332971, 1333066, 1333393, 1332956, 1332478, 1333067, 1332578, 1332772, 1332567, 1332344, 1333213",
+  "Fit For the Following Models",
+  "Fit for 2010 - 2011 Military Ranger Crew",
+  "Fit for 2010 - 2014 Ranger 400 HO",
+  "Fit for 2009 - 2013 Ranger 500 / 500 Crew Midsize",
+  "Fit for 2014 - 2023 Sportsman 570 EFI all models",
+  "Fit for 2007 - 2013 Sportsman 500 EFI / Sportsman 500 HO",
+].join("\n");
+const POL_LLM_WEAK = `1. Three Cassini-optimized titles
+* Auto Part for 2007-2013 Sportsman EFI
+2. Item Specifics
+* Brand: Unbranded
+* Warranty: Does Not Apply
+3. Fitment
+* 2010-2014 Polaris Ranger 400 HO
+4. Five bullet selling points
+* Built for Polaris ATV front differential replacement.
+5. Description first paragraph
+Front differential replacement for Polaris Ranger and Sportsman models.
+6. Package Includes
+* 1x Front Differential
+7. Suggested eBay category path
+-- verify in the eBay Sell flow before publishing.
+8. Notes to Seller
+* None`;
+const rPol = buildResult(POL_PKG, POL_LLM_WEAK, "gemini-3.1-flash-lite", 3.1, "300/200");
+ok("[20a] POL: title leads with normalized package title (not 'Auto Part')",
+   (rPol.titles[0]?.text || "").startsWith("Front Differential for Polaris Ranger Sportsman 400 500 800 Scrambler #1332731"),
+   rPol.titles[0]?.text);
+ok("[20a] POL: title keeps Part Type + OEM #1332731 + Make/Model",
+   /^Front Differential\b/.test(rPol.titles[0]?.text || "") &&
+   /#1332731/.test(rPol.titles[0]?.text || "") &&
+   /Polaris/.test(rPol.titles[0]?.text || ""),
+   rPol.titles[0]?.text);
+ok("[20a] POL: title is <=80 chars (no over-budget truncation)",
+   rPol.titles[0]?.len <= 80,
+   rPol.titles[0]?.len);
+ok("[20b] POL: model's weak 'Auto Part' title is gone",
+   !/Auto Part for 2007-2013/.test(rPol.titles[0]?.text || ""),
+   rPol.titles[0]?.text);
+ok("[20c] POL: OEM numbers from package survive the whitelist (no hallucination)",
+   rPol.verify.hallucinated.length === 0,
+   JSON.stringify(rPol.verify));
+ok("[20d] POL: fitment recovered from package (Polaris models present)",
+   /Polaris/.test(rPol.fitment) && rPol.fitment !== "-",
+   rPol.fitment);
+ok("[20e] POL: category inferred to Differentials & Parts (Part Type from package)",
+   /Differentials/.test(rPol.category),
+   rPol.category);
+
+// A GOOD model title must be kept (the fallback must not clobber a model
+// title that already carries the right info).
+const POL_LLM_GOOD = `1. Three Cassini-optimized titles
+* Front Differential for Polaris Ranger Sportsman 400 500 800 Scrambler #1332731
+* Front Diff Replacement Polaris Ranger Sportsman 400 500 800 #1332731
+* Polaris Front Differential Assembly Ranger Sportsman 400 500 800 EFI 1332731
+2. Item Specifics
+* Brand: Unbranded
+* OEM Part Number: 1332731, 1332773, 1332829
+* Type: Differential
+* Warranty: Does Not Apply
+3. Fitment
+* 2010-2014 Polaris Ranger 400 HO
+4. Five bullet selling points
+* Direct-fit Polaris front differential.
+5. Description first paragraph
+Front differential for Polaris Ranger Sportsman.
+6. Package Includes
+* 1x Front Differential
+7. Suggested eBay category path
+eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Differentials & Parts
+8. Notes to Seller
+* None`;
+const rPolGood = buildResult(POL_PKG, POL_LLM_GOOD, "gemini-3.1-flash-lite", 3.0, "300/200");
+ok("[20f] POL: a good model title is PRESERVED (not clobbered by fallback)",
+   (rPolGood.titles[0]?.text || "").startsWith("Front Differential for Polaris Ranger Sportsman 400 500 800 Scrambler #1332731"),
+   rPolGood.titles[0]?.text);
+ok("[20f] POL: good-title run still verifies clean",
+   rPolGood.verify.hallucinated.length === 0,
+   JSON.stringify(rPolGood.verify));
+
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);

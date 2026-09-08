@@ -307,6 +307,7 @@ def para(block: str) -> str:
 _CATEGORY_RULES = [
     # Suspension & Steering
     (re.compile(r"\bcontrol arms?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Control Arms & Parts"),
+    (re.compile(r"\bdifferential(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Differentials & Parts"),
     (re.compile(r"\bshock absorber(s)?\b|\bshocks? (and|&) struts?\b|\bstruts?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Shocks & Struts"),
     (re.compile(r"\bball joints?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Ball Joints"),
     (re.compile(r"\bsway bar(s)?\b|\bstabilizer bar(s)?\b"), "eBay Motors > Parts & Accessories > Car & Truck Parts & Accessories > Suspension & Steering > Sway Bars"),
@@ -700,6 +701,94 @@ def _is_valid_title(t: str) -> bool:
     return True
 
 
+# ---------- package-title normalization (Sept 2026 Polaris regression) ----------
+# Mirrors the JS helpers in lib/listing.js: when the data package's first line
+# is already a real eBay-style product title, normalise it into the listing
+# title instead of letting the model invent a generic "Auto Part for …"
+# placeholder. These never invent part numbers — verify_output() still guards.
+_TITLE_MAKE_RE = re.compile(
+    r"\b(Polaris|Honda|Yamaha|Kawasaki|Suzuki|BMW|Mercedes[-\s]?Benz|Mercedes|"
+    r"Toyota|Nissan|Jeep|Dodge|GMC|Chevrolet|Chevy|Subaru|Audi|Volkswagen|VW|"
+    r"Hyundai|Kia|Mazda|Lexus|Acura|Chrysler|Ram|Tesla|Can-?Am|Arctic\s*Cat|"
+    r"Arctic|Textron|CFMOTO|Hisun|Sea-?Doo|Ski-?Doo|Bobcat|John\s*Deere|"
+    r"Caterpillar|Cat|Kubota|Husqvarna|Stihl)\b", re.IGNORECASE
+)
+
+
+def looks_like_product_title(t: str) -> bool:
+    s = (t or "").strip()
+    if len(s) < 10 or len(s) > 120:
+        return False
+    if _looks_like_echo(s):
+        return False
+    if _is_category_path(s):
+        return False
+    has_part_type = any(rx.search(s) for rx, _ in _PART_TYPE_KEYWORDS)
+    has_part_no = bool(re.search(r"#?\b[A-Z0-9-]{4,}\b", s))
+    has_make = bool(_TITLE_MAKE_RE.search(s))
+    has_year = bool(re.search(r"\b(?:19|20)\d{2}\b", s))
+    # A genuine supplier product-title line names the part AND situates it:
+    #   - carries an OEM/part number, OR
+    #   - names the part type together with a vehicle make, OR
+    #   - names the part type together with a model year.
+    # A bare "1x Clutch Disc" / "1x Front Differential" packing line has a
+    # part type but no make/year/number, so it is rejected and the
+    # deterministic fallback_title() synthesises the real title instead.
+    if has_part_no:
+        return True
+    if has_part_type and (has_make or has_year):
+        return True
+    return False
+
+
+def normalize_pkg_title(t: str) -> str:
+    s = (t or "").strip()
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"^(?:high[-\s]?quality\s+|premium\s+|new\s+|aftermarket\s+|genuine\s+|oem\s+|replacement\s+for\s+)", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s*\breplacement\b\s*", " ", s, flags=re.IGNORECASE).strip()
+    s = re.sub(r"\s+", " ", s)
+    if len(s) > 80:
+        words = s.split(" ")
+        keep = []
+        length = 0
+        for w in words:
+            add = (1 if keep else 0) + len(w)
+            if length + add > 80:
+                break
+            keep.append(w)
+            length += add
+        s = " ".join(keep)
+    return s[:80].strip()
+
+
+def is_weak_title(t: str) -> bool:
+    s = (t or "").strip()
+    if not s:
+        return True
+    if re.match(r"^auto\s*part\b", s, re.IGNORECASE):
+        return True
+    if re.match(r"^generic\b", s, re.IGNORECASE):
+        return True
+    if re.match(r"^replacement\s+part\b", s, re.IGNORECASE):
+        return True
+    has_part_no = bool(re.search(r"#?\b[A-Z0-9-]{4,}\b", s))
+    has_part_type = any(rx.search(s) for rx, _ in _PART_TYPE_KEYWORDS)
+    has_year = bool(re.search(r"\b(?:19|20)\d{2}\b", s))
+    has_make = bool(_TITLE_MAKE_RE.search(s))
+    if not has_part_no and not has_part_type and not (has_year and has_make):
+        return True
+    return False
+
+
+def title_overlap(a: str, b: str) -> float:
+    def toks(s):
+        return {w for w in re.split(r"[^a-z0-9]+", (s or "").lower()) if len(w) >= 3}
+    A = toks(a)
+    B = toks(b)
+    if not A:
+        return 0.0
+    return sum(1 for w in A if w in B) / len(A)
+
 _PLACEHOLDER_RE = re.compile(r"^(?:does not apply|n/?a|none|-|—|null)$", re.IGNORECASE)
 
 
@@ -728,6 +817,7 @@ _PART_TYPE_KEYWORDS = [
     [re.compile(r"\bstrut\b", re.I), "Strut"],
     [re.compile(r"\bshock\s+absorber|shocks?\b", re.I), "Shock Absorber"],
     [re.compile(r"\bcontrol\s+arm(s)?\b", re.I), "Control Arm"],
+    [re.compile(r"\bdifferential(s)?\b", re.I), "Differential"],
     [re.compile(r"\bwater\s+pump(s)?\b", re.I), "Water Pump"],
     [re.compile(r"\boil\s+pan(s)?\b", re.I), "Oil Pan"],
     [re.compile(r"\bhead\s+gasket(s)?\b", re.I), "Head Gasket"],
@@ -934,6 +1024,19 @@ def api_generate(pkg_text: str) -> dict:
     # If the model wrote titles as plain (un-bulleted) lines, recover them.
     title_pool = raw_titles if raw_titles else plain_content_lines(sec.get(1, ""), 15, 80)
     titles = [{"text": t, "len": len(t)} for t in title_pool if _is_valid_title(t)][:3]
+    # Normalize-from-package safety net (Sept 2026 Polaris regression): if the
+    # data package's first line is already a real product title, lead with a
+    # NORMALIZATION of it whenever the model's title is weak or empty. A model
+    # title that already carries the package's key tokens (Part Type + OEM +
+    # Make/Model) is preserved — we never clobber good model work, only replace
+    # generic "Auto Part for …" placeholders. Output still passes verify_output().
+    pkg_title_norm = normalize_pkg_title(title) if looks_like_product_title(title) else ""
+    if pkg_title_norm:
+        model_strong = next((t for t in titles if not is_weak_title(t["text"])), None)
+        if model_strong is None:
+            titles = [{"text": pkg_title_norm, "len": len(pkg_title_norm)}] + titles
+        elif title_overlap(model_strong["text"], pkg_title_norm) < 0.5 and _is_valid_title(pkg_title_norm):
+            titles = [{"text": pkg_title_norm, "len": len(pkg_title_norm)}] + titles
     specifics = kv_items(sec.get(2, ""))
     fit_block = sec.get(3, "")
     fit_list = fitment_lines(fit_block)
@@ -949,11 +1052,15 @@ def api_generate(pkg_text: str) -> dict:
     # Item Specifics fallback: when the LLM skipped sec[2] entirely, recover
     # KV rows from the raw data package so the seller has Brand / MPN / Type
     # / Placement at minimum instead of a lone "-" row in the UI.
-    specifics_final = specifics
-    if not specifics_final:
-        fb = _fallback_specifics(pkg_text, fitment)
-        if fb:
-            specifics_final = fb
+    # Item Specifics: always enrich with package-derived fields the model
+    # omitted (Type, OEM, Placement, …) so a partial model output still
+    # surfaces real data — but never overwrite a field the model already
+    # provided. Mirrors lib/listing.js (specificsFinal always-enrich).
+    specifics_final = list(specifics)
+    _have = {k for k, _ in (specifics_final or [])}
+    for k, v in _fallback_specifics(pkg_text, fitment):
+        if k not in _have:
+            specifics_final.append([k, v])
     # Suggested eBay category path. Three-layer safety (SKU 52248592
     # regression — the LLM emitted "<real path> — verify in the eBay Sell
     # flow before publishing." which the previous length>120 short-circuit
