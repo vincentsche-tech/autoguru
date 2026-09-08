@@ -1092,32 +1092,121 @@ def verify_output(pkg_text: str, title: str, llm_text: str) -> dict:
 # ---------- HTML 描述（确定性代码生成，6 段结构对齐 eBay ActiveContent 政策） ----------
 def build_html(title: str, fitment: str, bullets: list, desc: str,
                specs: list, pkg_includes: list) -> str:
+    # Premium, eBay-compliant listing HTML (no JS / no external links /
+    # inline <style> / responsive). Built deterministically from real engine
+    # fields — never from model-invented marketing prose (hallucination red line).
+    # Mirrors lib/listing.js::buildHtml.
     esc = html_mod.escape
-    parts = ['<div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;color:#1a1a1a;line-height:1.6">']
-    parts.append("  <h2>" + esc(title) + "</h2>")
+
+    def spec_val(rx):
+        for k, v in (specs or []):
+            if rx.search(k or ""):
+                return v
+        return ""
+
+    # Subtitle from real specifics (Placement / Material / Finish / Fitment Type).
+    sub_parts = []
+    for key in ["Placement on Vehicle", "Material", "Surface Finish", "Fitment Type"]:
+        v = spec_val(re.compile(key, re.I))
+        if v and not re.search(r"does not apply", v, re.I):
+            sub_parts.append(v)
+        if len(sub_parts) >= 3:
+            break
+    subtitle = " | ".join(sub_parts) if sub_parts else "Direct Replacement Part"
+
+    # Badges: derived from real data + one seller promise (no part-number claims).
+    badges = []
+    if fitment and fitment != "-":
+        badges.append("\u2699\uFE0F OE Spec Fitment")
+    pk_qty = spec_val(re.compile(r"package quantity", re.I))
+    is_pair = (
+        len(pkg_includes or []) >= 2
+        or re.search(r"\bpair\b|2[-\s]?pc|2x|\bset\b", title or "", re.I) is not None
+        or re.search(r"\bpair\b|2[-\s]?pc|2x", pk_qty or "", re.I) is not None
+    )
+    if is_pair:
+        badges.append("\U0001F4E6 Pair (Left + Right)")
+    warranty = spec_val(re.compile(r"warranty", re.I))
+    if warranty and not re.search(r"does not apply", warranty, re.I):
+        badges.append("\U0001F6E1\uFE0F " + warranty)
+    badges.append("\U0001F69A Fast & Free Shipping")
+
+    # Fitment rows -> <li> with Make/Model bolded at the front.
+    fit_rows = [s.strip() for s in (fitment or "").split("\n") if s.strip()]
+
+    def bold_make_model(line):
+        m = re.match(r"^([A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,1})", line)
+        if not m:
+            return esc(line)
+        lead = m.group(1)
+        if re.match(
+            r"^(L4|V6|V8|Front|Rear|Left|Right|Driver|Passenger|Petrol|Diesel|Coupe|Sedan|Hatchback|Convertible|Wagon|SUV|Truck)$",
+            lead, re.I):
+            return esc(line)
+        return "<strong>" + esc(lead) + "</strong>" + esc(line[len(lead):])
+
+    STYLE = r""".ebay-container{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#222;line-height:1.6;max-width:1000px;margin:0 auto;padding:15px;background-color:#f8f9fa}
+.ebay-card{background:#fff;border:1px solid #e1e4e8;border-radius:8px;padding:20px;margin-bottom:20px;box-shadow:0 2px 5px rgba(0,0,0,.03)}
+.ebay-header{background:linear-gradient(135deg,#0b2545,#134074);color:#fff;padding:25px 20px;border-radius:8px;text-align:center;margin-bottom:20px}
+.ebay-header h1{margin:0;font-size:22px;font-weight:700;letter-spacing:.5px}
+.ebay-header p{margin:8px 0 0;font-size:14px;color:#8da9c4}
+.section-title{font-size:18px;font-weight:700;color:#0b2545;border-bottom:2px solid #134074;padding-bottom:8px;margin:0 0 15px;display:flex;align-items:center}
+.section-hint{font-size:13px;color:#718096;margin:-5px 0 10px}
+.ebay-lead{font-size:14px;color:#4a5568;margin:0}
+.badge-container{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:15px}
+.badge{background:#eef4fb;color:#134074;padding:6px 12px;border-radius:20px;font-size:13px;font-weight:600;border:1px solid #c8d9ed}
+.spec-table{width:100%;border-collapse:collapse;margin-top:10px}
+.spec-table td{padding:10px 12px;border-bottom:1px solid #edf2f7;font-size:14px}
+.spec-table td.label{font-weight:600;color:#4a5568;width:35%;background:#f7fafc}
+.fitment-list{list-style:none;padding:0;margin:0}
+.fitment-list li{padding:8px 12px;border-bottom:1px solid #edf2f7;font-size:14px;display:flex;align-items:center}
+.fitment-list li:nth-child(even){background:#f8fafc}
+.fitment-list li::before{content:"\2713";color:#38a169;font-weight:700;margin-right:10px}
+.feature-list{padding-left:20px;margin:0}
+.feature-list li{margin-bottom:10px;font-size:14px}
+.pkg-list{list-style:none;padding:0;margin:0}
+.pkg-list li{padding:8px 12px;border-bottom:1px solid #edf2f7;font-size:14px}
+.pkg-list li::before{content:"\2022";color:#134074;font-weight:700;margin-right:10px}
+.note-box{background:#fffaf0;border-left:4px solid #dd6b20;padding:15px;border-radius:0 6px 6px 0;font-size:13px;color:#7b341e;margin-bottom:20px}
+@media (max-width:600px){.ebay-header h1{font-size:18px}.spec-table td.label{width:45%}}"""
+
+    parts = []
+    parts.append('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
+    parts.append("<style>" + STYLE + "</style>")
+    parts.append('<div class="ebay-container">')
+    parts.append('  <div class="ebay-header"><h1>' + esc(title or "Product Listing") + "</h1><p>" + esc(subtitle) + "</p></div>")
+    parts.append('  <div class="ebay-card">')
+    parts.append('    <div class="badge-container">' + "".join('<span class="badge">' + esc(b) + "</span>" for b in badges) + "</div>")
     if desc:
-        parts.append("  <p>" + esc(desc) + "</p>")
-    parts.append("  <h3>Fitment / Compatibility</h3>")
-    # Fitment lines are separated by \n (_format_fitment emits one line per
-    # base-model cluster); convert to <br> so each cluster renders on its
-    # own row instead of an inline wall of text.
-    parts.append("  <p>" + esc(fitment or "-").replace("\n", "<br>") + "</p>")
+        parts.append('    <p class="ebay-lead">' + esc(desc) + "</p>")
+    parts.append("  </div>")
+    if fit_rows:
+        parts.append('  <div class="ebay-card">')
+        parts.append('    <h2 class="section-title">Vehicle Compatibility</h2>')
+        parts.append("    <p class=\"section-hint\">Please confirm your vehicle's year, model and engine before ordering.</p>")
+        parts.append('    <ul class="fitment-list">' + "".join("<li>" + bold_make_model(r) + "</li>" for r in fit_rows) + "</ul>")
+        parts.append("  </div>")
     if specs:
         rows = "\n".join(
-            "      <tr><td style=\"padding:6px 10px;border-bottom:1px solid #ddd\"><strong>" + esc(k) +
-            "</strong></td><td style=\"padding:6px 10px;border-bottom:1px solid #ddd\">" + esc(v) + "</td></tr>"
+            '      <tr><td class="label">' + esc(k) + "</td><td>" + esc(v) + "</td></tr>"
             for k, v in specs)
-        parts.append("  <h3>Specifications</h3>")
-        parts.append('  <table style="width:100%;border-collapse:collapse">\n' + rows + "\n  </table>")
+        parts.append('  <div class="ebay-card">')
+        parts.append('    <h2 class="section-title">Product Specifications</h2>')
+        parts.append('    <table class="spec-table">\n' + rows + "\n    </table>")
+        parts.append("  </div>")
     if bullets:
-        lis = "\n".join("    <li>" + esc(b) + "</li>" for b in bullets[:5])
-        parts.append("  <h3>Features</h3>")
-        parts.append("  <ul>\n" + lis + "\n  </ul>")
+        lis = "".join("<li>" + esc(b) + "</li>" for b in bullets[:5])
+        parts.append('  <div class="ebay-card">')
+        parts.append('    <h2 class="section-title">Why Choose This Part?</h2>')
+        parts.append('    <ul class="feature-list">' + lis + "</ul>")
+        parts.append("  </div>")
     if pkg_includes:
-        inc = "\n".join("    <li>" + esc(i) + "</li>" for i in pkg_includes[:6])
-        parts.append("  <h3>Package Includes</h3>")
-        parts.append("  <ul>\n" + inc + "\n  </ul>")
-    parts.append("  <p><em>Note: Professional installation is recommended. Please verify all part numbers against your vehicle before ordering.</em></p>")
+        inc = "".join("<li>" + esc(i) + "</li>" for i in pkg_includes[:6])
+        parts.append('  <div class="ebay-card">')
+        parts.append('    <h2 class="section-title">Package Includes</h2>')
+        parts.append('    <ul class="pkg-list">' + inc + "</ul>")
+        parts.append("  </div>")
+    parts.append('  <div class="note-box"><strong>\u26A0\uFE0F Professional Installation Recommended:</strong> Suspension and steering components are vital to driving safety. A certified technician installation and a post-installation wheel alignment are strongly recommended. Please match the original OE part number before ordering.</div>')
     parts.append("</div>")
     return "\n".join(parts)
 

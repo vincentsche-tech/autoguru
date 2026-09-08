@@ -92,16 +92,21 @@ ok("unit spec ignored", !buildWhitelist("Bolt", "length 35MM torque 88LB").some(
 console.log("\n[3] html + prompt");
 const r = buildResult(pkgText, LLM, "gemini-3.1-flash-lite", 8.4, "582/657");
 for (const block of [
-  "<h2>",
-  "Fitment / Compatibility",
-  "Specifications",
-  "Features",
+  "ebay-container",
+  "ebay-header",
+  "badge",
+  "fitment-list",
+  "Vehicle Compatibility",
+  "spec-table",
+  "Product Specifications",
+  "Why Choose This Part?",
   "Package Includes",
-  "Note:",
+  "note-box",
 ]) {
   ok(`html has ${block}`, r.html.includes(block));
 }
 ok("html escaped (no raw <script>)", !/<script/i.test(r.html));
+ok("html eBay-compliant (no external src/href)", !/\b(src|href)\s*=/.test(r.html));
 ok("title length reported", r.titles[0].len === r.titles[0].text.length);
 ok("category filled", r.category.includes("Suspension"));
 const prompt = buildPrompt(pkgText);
@@ -183,7 +188,9 @@ ok("GLC e2e: specifics table populated", rGLC.specifics.length === 8);
 ok("GLC e2e: fitment has 5 vehicles", /GLC 300|GLC 350e|GLC 43 AMG|GLC 63 AMG|GLC 63 S/.test(rGLC.fitment) && rGLC.fitment.split(/\n+|(?:;\s*)/).filter(Boolean).length === 5);
 ok(
   "GLC e2e: html contains all 5 fitments",
-  ["GLC 300", "GLC 350e", "GLC 43 AMG", "GLC 63 AMG", "GLC 63 S"].every((m) => rGLC.html.includes(m))
+  ["GLC 300", "GLC 350e", "GLC 43 AMG", "GLC 63 AMG", "GLC 63 S"].every((m) =>
+    rGLC.html.replace(/<\/?strong>/g, "").includes(m)
+  )
 );
 ok(
   "GLC e2e: html tables Warranty",
@@ -401,7 +408,7 @@ ok("RunBoard: titles are 15-80 chars (no overly-thin fallback)", rRun.titles.eve
 ok("RunBoard: 5 selling points recovered from `>>` bullets", rRun.bullets.length === 5, JSON.stringify(rRun.bullets));
 ok("RunBoard: bullets mention real package concepts (no echo)", rRun.bullets.some((b) => /bolt-on|aluminum|hardware/i.test(b)) && !/benefit[- ]driven/i.test(rRun.bullets.join(" ")));
 ok("RunBoard: fitment has the 2021-2024 Kia Sorento line", /2021-2024\s+Kia\s+Sorento/i.test(rRun.fitment), rRun.fitment);
-ok("RunBoard: HTML `<h3>Features</h3>` block has 5 selling points", /<h3>Features<\/h3>\s*<ul>[\s\S]*?<\/ul>/.test(rRun.html) && (rRun.html.match(/<h3>Features<\/h3>\s*<ul>([\s\S]*?)<\/ul>/) || ["", ""])[1].split("<li>").length - 1 === 5, "Features block size mismatch");
+ok("RunBoard: HTML 'Why Choose This Part?' block has 5 selling points", /Why Choose This Part\?<\/h2>\s*<ul class="feature-list">[\s\S]*?<\/ul>/.test(rRun.html) && (rRun.html.match(/Why Choose This Part\?<\/h2>\s*<ul class="feature-list">([\s\S]*?)<\/ul>/) || ["", ""])[1].split("<li>").length - 1 === 5, "Features block size mismatch");
 ok("RunBoard: HTML escapes any embedded markup", !/<img\s+src=x/i.test(rRun.html));
 ok("RunBoard: verify passes (no fabricated part numbers)", rRun.verify.hallucinated.length === 0, JSON.stringify(rRun.verify));
 
@@ -472,7 +479,7 @@ ok("Z3: fitment recovered with full Make/Model (BMW Z3 1996-2002)", rZ3.fitment 
 ok("Z3: fitment does NOT leak the section header word 'Fitment'", !/fitment/i.test(rZ3.fitment));
 ok("Z3: 5 selling points recovered from plain text lines", rZ3.bullets.length === 5, JSON.stringify(rZ3.bullets));
 ok("Z3: bullets are real copy (no echo / category path)", rZ3.bullets.every((b) => !/benefit[- ]driven/i.test(b) && !/eBay Motors/i.test(b)));
-ok("Z3: HTML Features block has 5 bullets", /<h3>Features<\/h3>\s*<ul>([\s\S]*?)<\/ul>/.test(rZ3.html) && (rZ3.html.match(/<h3>Features<\/h3>\s*<ul>([\s\S]*?)<\/ul>/) || ["", ""])[1].split("<li>").length - 1 === 5);
+ok("Z3: HTML 'Why Choose This Part?' block has 5 bullets", /Why Choose This Part\?<\/h2>\s*<ul class="feature-list">([\s\S]*?)<\/ul>/.test(rZ3.html) && (rZ3.html.match(/Why Choose This Part\?<\/h2>\s*<ul class="feature-list">([\s\S]*?)<\/ul>/) || ["", ""])[1].split("<li>").length - 1 === 5);
 ok("Z3: verify passes (all 3 part numbers exist in package)", rZ3.verify.hallucinated.length === 0, JSON.stringify(rZ3.verify));
 ok("Z3: section-3 body does not contain the 'Fitment' header text", !/^\s*Fitment\s*$/m.test(Z3_LLM.split("3. Fitment")[1].split("4.")[0]) || true);
 
