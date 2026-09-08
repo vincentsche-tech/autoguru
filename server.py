@@ -639,10 +639,23 @@ def _format_fitment(rows):
 
     yr_re = re.compile(r"^\s*\(?(?:(\d{4})\s*[-–—]\s*(\d{2,4})|(\d{4}))\)?\s+(.+?)\s*$")
     yr_re_back = re.compile(r"^(.+?)\s*\(?(?:(\d{4})\s*[-–—]\s*(\d{2,4})|(\d{4}))\)?\s*$")
+    # PkgText fitment rows are universally "<Make> <Model> <year-range> <spec>"
+    # (e.g. "Honda Accord 2003-2007 l4 2.4L Petrol Coupe Front Left & Right")
+    # — the year sits BETWEEN Make/Model and the engine/body/side spec. This
+    # pattern doesn't fit the year-first or year-last regexes above, so without
+    # this third pattern the row falls through to the "; "-join fallback and
+    # the buyer sees a single comma dump instead of per-vehicle lines. Fix:
+    # capture Make/Model (before-year) + year + spec (after-year), reassemble
+    # as "<Make/Model> <spec> (<year>)" — the same final shape as the other
+    # two patterns so downstream rendering stays uniform. Acura/Honda Accord
+    # steering-knuckle regression Sept 2026.
+    yr_re_mid = re.compile(r"^(.+?)\s*\(?(?:(\d{4})\s*[-–—]\s*(\d{2,4})|(\d{4}))\)?\s+(.+?)\s*$")
     parsed = []
     for row in safe:
         m_front = yr_re.match(row)
-        m = m_front or yr_re_back.match(row)
+        m_back = yr_re_back.match(row) if not m_front else None
+        m_mid = yr_re_mid.match(row) if not m_front and not m_back else None
+        m = m_front or m_back or m_mid
         if not m:
             parsed.append({"ok": False, "raw": row})
             continue
@@ -654,7 +667,7 @@ def _format_fitment(rows):
                 y2_raw = m.group(2)
                 y2 = int(y2_raw) if len(y2_raw) == 4 else 2000 + int(y2_raw)
             body = m.group(4).strip()
-        else:
+        elif m_back:
             if m.group(4):
                 y1 = y2 = int(m.group(4))
             else:
@@ -662,6 +675,18 @@ def _format_fitment(rows):
                 y2_raw = m.group(3)
                 y2 = int(y2_raw) if len(y2_raw) == 4 else 2000 + int(y2_raw)
             body = m.group(1).strip()
+        else:
+            # middle-year: group(1) = Make/Model, group(2..3) = year-range
+            # or group(4) = single year, group(5) = spec (engine/body/side).
+            # Reassemble so Make/Model stays at the front of the final
+            # "<body> (<year>)" output.
+            if m.group(4):
+                y1 = y2 = int(m.group(4))
+            else:
+                y1 = int(m.group(2))
+                y2_raw = m.group(3)
+                y2 = int(y2_raw) if len(y2_raw) == 4 else 2000 + int(y2_raw)
+            body = (m.group(1) + " " + m.group(5)).strip()
         parsed.append({
             "ok": True,
             "year_start": y1, "year_end": y2,
@@ -722,9 +747,40 @@ def extract_pkg_fitment(pkg_text: str) -> list:
         line = re.sub(r"[;,\s]+$", "", line)
         if not line:
             continue
+        # Pull Make/Model from the BEFORE-year segment of the cue line. PkgText
+        # format is universally "Fit for <Make> <Model> <year> <spec>", so the
+        # capword run before the year range is the Make/Model. We deliberately
+        # IGNORE capwords after the year (those are spec words -- "Petrol",
+        # "Coupe", "Front", "Left", "Right", ...).
+        # Acura TSX / Honda Accord steering-knuckle regression Sept 2026: when
+        # we just fed the cue line to fitment_lines(), it stripped everything
+        # before the year range, losing the Make/Model. Mirrored in
+        # lib/listing.js (search "Acura/Honda Accord steering-knuckle
+        # regression").
+        y_cue = _FIT_YEAR_RE.search(line)
+        if y_cue:
+            before = line[: y_cue.start()].strip()
+            mm_words = [
+                w for w in re.split(r"\s+", before)
+                if re.match(r"^[A-Z][A-Za-z0-9-]+$", w)
+            ][:3]
+            make_model = " ".join(mm_words)
+        else:
+            make_model = ""
         cleaned = fitment_lines(line)
         if cleaned:
             for row in cleaned:
+                # If the row lost the Make/Model during prose split (Acura/
+                # Honda Accord steering-knuckle regression Sept 2026), prepend
+                # it.
+                if make_model and make_model.lower() not in row.lower():
+                    yi = _FIT_YEAR_RE.search(row)
+                    if yi:
+                        _push(
+                            f"{make_model} {row[yi.start():yi.end()]}{row[yi.end():]}"
+                        )
+                        continue
+                # Legacy bare-year recovery path.
                 if not re.search(r"\b[A-Z][A-Za-z0-9-]+\b", row):
                     y = _FIT_YEAR_RE.search(line)
                     if y:
@@ -1118,6 +1174,36 @@ def api_generate(pkg_text: str) -> dict:
     fit_list = fitment_lines(fit_block)
     if not fit_list:
         fit_list = extract_pkg_fitment(pkg_text)
+    # P0 fix (Acura/Honda Accord steering-knuckle regression Sept 2026):
+    # when the model writes year-prefixed fitment rows but DROPS the Make/Model
+    # (its "smart-dedup" treats the same Make/Model across rows as redundant
+    # context), the buyer's most important info is gone. We detect this by
+    # checking whether the section's rows mention ANY Make/Model candidate
+    # that appears in pkgText's own fitment block (the pkgText's Make/Model
+    # list is the ground truth -- if the model's section missed all of them,
+    # the section is Make/Model-poor). When detected, fallback to pkgText.
+    # Mirrored in lib/listing.js (search "P0 fix (Acura/Honda Accord").
+    if fit_list:
+        pkg_fit = extract_pkg_fitment(pkg_text)
+        if pkg_fit:
+            _spec_words = {
+                "L4", "V6", "V8", "I4", "I5", "I6",
+                "Front", "Rear", "Left", "Right",
+                "Driver", "Passenger",
+                "Petrol", "Diesel", "Hybrid",
+                "Coupe", "Sedan", "Hatchback", "Convertible",
+                "Wagon", "SUV", "Truck",
+            }
+            _pkg_models = set()
+            for _row in pkg_fit:
+                for _w in re.findall(r"\b[A-Z][A-Za-z0-9-]+", _row):
+                    if _w not in _spec_words:
+                        _pkg_models.add(_w)
+            _section_has = any(
+                any(m in row for m in _pkg_models) for row in fit_list
+            )
+            if _pkg_models and not _section_has:
+                fit_list = pkg_fit
     fitment = (fit_list[0] if len(fit_list) == 1 else _format_fitment(fit_list)) if fit_list else "-"
     bullets = [b for b in list_items(sec.get(4, "")) if not _looks_like_echo(b) and not _is_category_path(b)][:5]
     if not bullets:
