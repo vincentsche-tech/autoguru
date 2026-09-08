@@ -617,6 +617,79 @@ def fitment_lines(block: str) -> list:
     return [_enrich_fitment_row(r, raw) for r in chunks]
 
 
+def _format_fitment(rows):
+    r"""
+    Compact-format fitment rows. Mirror of lib/listing.js::formatFitment.
+
+    Emits ONE clean line per vehicle: "<Full Model> (<yearStart>-<yearEnd>)",
+    de-duplicated (case-insensitive) and sorted by yearStart then model. Handles
+    BOTH "2016-2020 Mercedes-Benz GLC 300" (year-first) and "Hyundai Accent
+    2012-2019" (year-last) row orientations. This replaces the old giant "; "-joined
+    blob with a Gemini-style clean listing, with zero data loss.
+
+    Falls back to "; ".join(rows) when any row fails to parse.
+    """
+    if not isinstance(rows, list):
+        return str(rows or "-")
+    safe = [str(r or "").strip() for r in rows if str(r or "").strip()]
+    if not safe:
+        return "-"
+    if len(safe) == 1:
+        return safe[0]
+
+    yr_re = re.compile(r"^\s*\(?(?:(\d{4})\s*[-–—]\s*(\d{2,4})|(\d{4}))\)?\s+(.+?)\s*$")
+    yr_re_back = re.compile(r"^(.+?)\s*\(?(?:(\d{4})\s*[-–—]\s*(\d{2,4})|(\d{4}))\)?\s*$")
+    parsed = []
+    for row in safe:
+        m_front = yr_re.match(row)
+        m = m_front or yr_re_back.match(row)
+        if not m:
+            parsed.append({"ok": False, "raw": row})
+            continue
+        if m_front:
+            if m.group(3):
+                y1 = y2 = int(m.group(3))
+            else:
+                y1 = int(m.group(1))
+                y2_raw = m.group(2)
+                y2 = int(y2_raw) if len(y2_raw) == 4 else 2000 + int(y2_raw)
+            body = m.group(4).strip()
+        else:
+            if m.group(4):
+                y1 = y2 = int(m.group(4))
+            else:
+                y1 = int(m.group(2))
+                y2_raw = m.group(3)
+                y2 = int(y2_raw) if len(y2_raw) == 4 else 2000 + int(y2_raw)
+            body = m.group(1).strip()
+        parsed.append({
+            "ok": True,
+            "year_start": y1, "year_end": y2,
+            "body": body,
+        })
+    if any(not p["ok"] for p in parsed):
+        return "; ".join(safe)
+
+    # De-dup by body (case-insensitive), keep first occurrence.
+    seen = set()
+    uniq = []
+    for p in parsed:
+        k = p["body"].lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(p)
+    uniq.sort(key=lambda p: (p["year_start"], p["body"]))
+
+    # One clean line per vehicle.
+    lines = []
+    for p in uniq:
+        if p["year_start"] == p["year_end"]:
+            yr = str(p["year_start"])
+        else:
+            yr = f"{p['year_start']}-{p['year_end']}"
+        lines.append(f"{p['body']} ({yr})")
+    return "\n".join(lines)
 _FIT_CUE_RE = re.compile(
     r"(?:^|\n)\s*(?:fits?\s+for|compatible\s+(?:with|for|vehicle|car|model|truck|fitment)|(?:vehicle\s+)?fitment\s+for|fitment\s*[:：]|application\s*[:：]|for\s+vehicle)\s*[:：]?\s*([^\n]+)",
     re.IGNORECASE,
@@ -969,7 +1042,10 @@ def build_html(title: str, fitment: str, bullets: list, desc: str,
     if desc:
         parts.append("  <p>" + esc(desc) + "</p>")
     parts.append("  <h3>Fitment / Compatibility</h3>")
-    parts.append("  <p>" + esc(fitment or "-") + "</p>")
+    # Fitment lines are separated by \n (_format_fitment emits one line per
+    # base-model cluster); convert to <br> so each cluster renders on its
+    # own row instead of an inline wall of text.
+    parts.append("  <p>" + esc(fitment or "-").replace("\n", "<br>") + "</p>")
     if specs:
         rows = "\n".join(
             "      <tr><td style=\"padding:6px 10px;border-bottom:1px solid #ddd\"><strong>" + esc(k) +
@@ -1042,7 +1118,7 @@ def api_generate(pkg_text: str) -> dict:
     fit_list = fitment_lines(fit_block)
     if not fit_list:
         fit_list = extract_pkg_fitment(pkg_text)
-    fitment = (fit_list[0] if len(fit_list) == 1 else "; ".join(fit_list)) if fit_list else "-"
+    fitment = (fit_list[0] if len(fit_list) == 1 else _format_fitment(fit_list)) if fit_list else "-"
     bullets = [b for b in list_items(sec.get(4, "")) if not _looks_like_echo(b) and not _is_category_path(b)][:5]
     if not bullets:
         bullets = [b for b in plain_content_lines(sec.get(4, ""), 8, 200)
