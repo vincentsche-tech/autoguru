@@ -15,6 +15,7 @@ const out = fixtures.map((f) => {
     type: typeRow ? typeRow[1] : '',
     halluc: (r.verify && r.verify.hallucinated) || [],
     ok: r.ok,
+    html: r.html,
   };
 });
 fs.writeFileSync(process.argv[3], JSON.stringify(out, null, 2));

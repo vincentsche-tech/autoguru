@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildWhitelist, verifyOutput, splitSections, listItems, kvItems, fitmentLines, para, inferCategoryPath, buildHtml, buildPrompt, buildResult, extractPkgFitment, inferPartTypeFromPkg, fallbackSpecifics, fallbackTitle, looksLikeCategoryEcho, stripCategoryEchoTail } from "../lib/listing.js";
+import { buildWhitelist, verifyOutput, splitSections, listItems, kvItems, fitmentLines, para, inferCategoryPath, buildHtml, buildPrompt, buildResult, extractPkgFitment, inferPartTypeFromPkg, fallbackSpecifics, fallbackTitle, looksLikeCategoryEcho, stripCategoryEchoTail, formatFitment } from "../lib/listing.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG = JSON.parse(
@@ -92,16 +92,21 @@ ok("unit spec ignored", !buildWhitelist("Bolt", "length 35MM torque 88LB").some(
 console.log("\n[3] html + prompt");
 const r = buildResult(pkgText, LLM, "gemini-3.1-flash-lite", 8.4, "582/657");
 for (const block of [
-  "<h2>",
-  "Fitment / Compatibility",
-  "Specifications",
-  "Features",
+  "ebay-container",
+  "ebay-header",
+  "badge",
+  "fitment-list",
+  "Vehicle Compatibility",
+  "spec-table",
+  "Product Specifications",
+  "Why Choose This Part?",
   "Package Includes",
-  "Note:",
+  "note-box",
 ]) {
   ok(`html has ${block}`, r.html.includes(block));
 }
 ok("html escaped (no raw <script>)", !/<script/i.test(r.html));
+ok("html eBay-compliant (no external src/href)", !/\b(src|href)\s*=/.test(r.html));
 ok("title length reported", r.titles[0].len === r.titles[0].text.length);
 ok("category filled", r.category.includes("Suspension"));
 const prompt = buildPrompt(pkgText);
@@ -183,7 +188,9 @@ ok("GLC e2e: specifics table populated", rGLC.specifics.length === 8);
 ok("GLC e2e: fitment has 5 vehicles", /GLC 300|GLC 350e|GLC 43 AMG|GLC 63 AMG|GLC 63 S/.test(rGLC.fitment) && rGLC.fitment.split(/\n+|(?:;\s*)/).filter(Boolean).length === 5);
 ok(
   "GLC e2e: html contains all 5 fitments",
-  ["GLC 300", "GLC 350e", "GLC 43 AMG", "GLC 63 AMG", "GLC 63 S"].every((m) => rGLC.html.includes(m))
+  ["GLC 300", "GLC 350e", "GLC 43 AMG", "GLC 63 AMG", "GLC 63 S"].every((m) =>
+    rGLC.html.replace(/<\/?strong>/g, "").includes(m)
+  )
 );
 ok(
   "GLC e2e: html tables Warranty",
@@ -401,7 +408,7 @@ ok("RunBoard: titles are 15-80 chars (no overly-thin fallback)", rRun.titles.eve
 ok("RunBoard: 5 selling points recovered from `>>` bullets", rRun.bullets.length === 5, JSON.stringify(rRun.bullets));
 ok("RunBoard: bullets mention real package concepts (no echo)", rRun.bullets.some((b) => /bolt-on|aluminum|hardware/i.test(b)) && !/benefit[- ]driven/i.test(rRun.bullets.join(" ")));
 ok("RunBoard: fitment has the 2021-2024 Kia Sorento line", /2021-2024\s+Kia\s+Sorento/i.test(rRun.fitment), rRun.fitment);
-ok("RunBoard: HTML `<h3>Features</h3>` block has 5 selling points", /<h3>Features<\/h3>\s*<ul>[\s\S]*?<\/ul>/.test(rRun.html) && (rRun.html.match(/<h3>Features<\/h3>\s*<ul>([\s\S]*?)<\/ul>/) || ["", ""])[1].split("<li>").length - 1 === 5, "Features block size mismatch");
+ok("RunBoard: HTML 'Why Choose This Part?' block has 5 selling points", /Why Choose This Part\?<\/h2>\s*<ul class="feature-list">[\s\S]*?<\/ul>/.test(rRun.html) && (rRun.html.match(/Why Choose This Part\?<\/h2>\s*<ul class="feature-list">([\s\S]*?)<\/ul>/) || ["", ""])[1].split("<li>").length - 1 === 5, "Features block size mismatch");
 ok("RunBoard: HTML escapes any embedded markup", !/<img\s+src=x/i.test(rRun.html));
 ok("RunBoard: verify passes (no fabricated part numbers)", rRun.verify.hallucinated.length === 0, JSON.stringify(rRun.verify));
 
@@ -472,7 +479,7 @@ ok("Z3: fitment recovered with full Make/Model (BMW Z3 1996-2002)", rZ3.fitment 
 ok("Z3: fitment does NOT leak the section header word 'Fitment'", !/fitment/i.test(rZ3.fitment));
 ok("Z3: 5 selling points recovered from plain text lines", rZ3.bullets.length === 5, JSON.stringify(rZ3.bullets));
 ok("Z3: bullets are real copy (no echo / category path)", rZ3.bullets.every((b) => !/benefit[- ]driven/i.test(b) && !/eBay Motors/i.test(b)));
-ok("Z3: HTML Features block has 5 bullets", /<h3>Features<\/h3>\s*<ul>([\s\S]*?)<\/ul>/.test(rZ3.html) && (rZ3.html.match(/<h3>Features<\/h3>\s*<ul>([\s\S]*?)<\/ul>/) || ["", ""])[1].split("<li>").length - 1 === 5);
+ok("Z3: HTML 'Why Choose This Part?' block has 5 bullets", /Why Choose This Part\?<\/h2>\s*<ul class="feature-list">([\s\S]*?)<\/ul>/.test(rZ3.html) && (rZ3.html.match(/Why Choose This Part\?<\/h2>\s*<ul class="feature-list">([\s\S]*?)<\/ul>/) || ["", ""])[1].split("<li>").length - 1 === 5);
 ok("Z3: verify passes (all 3 part numbers exist in package)", rZ3.verify.hallucinated.length === 0, JSON.stringify(rZ3.verify));
 ok("Z3: section-3 body does not contain the 'Fitment' header text", !/^\s*Fitment\s*$/m.test(Z3_LLM.split("3. Fitment")[1].split("4.")[0]) || true);
 
@@ -1241,5 +1248,85 @@ ok("[20f] POL: a good model title is PRESERVED (not clobbered by fallback)",
 ok("[20f] POL: good-title run still verifies clean",
    rPolGood.verify.hallucinated.length === 0,
    JSON.stringify(rPolGood.verify));
+
+// [21] Acura TSX / Honda Accord steering-knuckle regression (Sept 2026).
+// Symptom: model wrote year-prefixed fitment rows but DROPPED the Make/Model
+// (its "smart-dedup" treated "Honda Accord" appearing on every row as
+// redundant context). Final fitment output was spec-only:
+//   "l4 2.4L Petrol Coupe Front Left & Right (2003-2007) V6 3.0L ..."
+// — buyer couldn't tell which vehicle. Fix path (mirrored JS+Python):
+//   1) extractPkgFitment() now pulls Make/Model from the BEFORE-year segment
+//      of each pkgText cue line (instead of feeding the whole line to
+//      fitmentLines which strips everything before the year range).
+//   2) buildResult() detects Make/Model-poor section fitment (no row mentions
+//      any pkgFit-derived Make/Model candidate) and falls back to pkgFit.
+//   3) formatFitment() now parses "<Make> <Model> <year-range> <spec>"
+//      (year-middle) so each vehicle emits ONE clean line.
+const ACURA_PKG = `2x Steering Knuckle Front Left & Right Replacement for Acura TSX 04-08 Honda Accord 03-07
+Part Number
+698-022 + 698-023, 51215-SDA-A00 + 51210-SDA-A00, 51215-SDA-A01 + 51210-SDA-A01, 51215-SDA-A02 + 51210-SDA-A02
+Specification
+Position: Front Left & Right
+Material: Steel
+Color: Black
+Hub Included: No
+Fits for the Following Models:
+Fit for Acura TSX 2004-2008 l4 2.4L Petrol Sedan Front Left & Right
+Fit for Honda Accord 2003-2007 l4 2.4L Petrol Coupe Front Left & Right
+Fit for Honda Accord 2003-2007 V6 3.0L Petrol Coupe Front Left & Right
+Fit for Honda Accord 2003-2007 l4 2.4L Petrol Sedan Front Left & Right
+Fit for Honda Accord 2003-2007 V6 3.0L Petrol Sedan Front Left & Right`;
+// Plausible LLM output that exhibits the bug: section 3 is year-first but
+// Make/Model are dropped (Honda Accord / Acura TSX assumed obvious).
+const ACURA_LLM = `1. Titles
+* 2x Front Steering Knuckle Pair for Honda Accord 03-07 Acura TSX 04-08 51215-SDA-A02
+* 2x Front Steering Knuckle Assembly for Honda Accord 03-07 Acura TSX 698-022 698-023
+* Front Steering Knuckle Pair 03-07 Honda Accord 04-08 Acura TSX Steel Black Pair
+2. Item Specifics
+* Brand: Unbranded
+* Type: Steering Knuckle
+* Warranty: Does Not Apply
+3. Fitment
+2003-2007 l4 2.4L Petrol Coupe Front Left & Right
+2003-2007 V6 3.0L Petrol Coupe Front Left & Right
+2003-2007 V6 3.0L Petrol Sedan Front Left & Right
+2004-2008 l4 2.4L Petrol Sedan Front Left & Right
+4. Five bullet selling points
+* OE-spec knuckle pair for Honda/Acura.
+5. Description first paragraph
+Steering knuckle pair for Honda Accord and Acura TSX.
+6. Package Includes
+* 1x Front Left Steering Knuckle
+* 1x Front Right Steering Knuckle
+7. Suggested eBay category path
+Motors > Parts & Accessories > Steering & Suspension > Steering Knuckles & Spindles
+8. Notes to Seller
+* None`;
+const rAcura = buildResult(ACURA_PKG, ACURA_LLM, "gemini-3.1-flash-lite", 3.6, "300/200");
+ok("[21a] Acura: every fitment line starts with a Make/Model (no spec-only rows)",
+   rAcura.fitment.split(/\n+/).every((l) => /^(Honda Accord|Acura TSX)\b/.test(l)),
+   rAcura.fitment);
+ok("[21b] Acura: fitment mentions Honda Accord",
+   /Honda Accord/.test(rAcura.fitment), rAcura.fitment);
+ok("[21c] Acura: fitment mentions Acura TSX",
+   /Acura TSX/.test(rAcura.fitment), rAcura.fitment);
+ok("[21d] Acura: fitment is one-line-per-vehicle (not '; '-joined dump)",
+   !/;/.test(rAcura.fitment) && rAcura.fitment.split(/\n+/).filter(Boolean).length >= 5,
+   rAcura.fitment);
+ok("[21e] Acura: sorted by year then model (Acura TSX last, year appended)",
+   rAcura.fitment.split(/\n+/).filter(Boolean).slice(-1)[0] === "Acura TSX l4 2.4L Petrol Sedan Front Left & Right (2004-2008)",
+   rAcura.fitment);
+// Make sure extractPkgFitment alone also recovers Make/Model (used by the
+// fallback path inside buildResult).
+const acuraPkgFit = extractPkgFitment(ACURA_PKG);
+ok("[21f] extractPkgFitment: Acura pkg yields rows starting with Make/Model",
+   acuraPkgFit.length === 5 && acuraPkgFit.every((A) => /^(Honda Accord|Acura TSX)\b/.test(A)),
+   JSON.stringify(acuraPkgFit));
+// Year-middle parsing on raw pkg rows.
+const acuraFmt = formatFitment(acuraPkgFit);
+ok("[21g] formatFitment: 5 per-vehicle lines, year appended",
+   acuraFmt.split(/\n+/).filter(Boolean).length === 5 &&
+   acuraFmt.split(/\n+/).every((l) => /\(\d{4}(?:-\d{4})?\)\s*$/.test(l)),
+   acuraFmt);
 
 console.log(`\n${pass} checks passed${process.exitCode ? " (with failures)" : ""}\n`);

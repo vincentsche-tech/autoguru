@@ -157,7 +157,7 @@ FIXTURES = [
     {"name": "psp_hybrid", "pkg": PSP_PKG, "llm": PSP_LLM},
 ]
 
-FIELDS = ["title", "category", "fitment", "type", "ok"]
+FIELDS = ["title", "category", "fitment", "type", "ok", "html"]
 
 
 def run_js():
@@ -204,6 +204,7 @@ def run_py():
             "type": typev,
             "halluc": (res.get("verify") or {}).get("hallucinated", []),
             "ok": res.get("ok"),
+            "html": res.get("html", ""),
         }
     return out
 

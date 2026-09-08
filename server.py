@@ -639,10 +639,23 @@ def _format_fitment(rows):
 
     yr_re = re.compile(r"^\s*\(?(?:(\d{4})\s*[-–—]\s*(\d{2,4})|(\d{4}))\)?\s+(.+?)\s*$")
     yr_re_back = re.compile(r"^(.+?)\s*\(?(?:(\d{4})\s*[-–—]\s*(\d{2,4})|(\d{4}))\)?\s*$")
+    # PkgText fitment rows are universally "<Make> <Model> <year-range> <spec>"
+    # (e.g. "Honda Accord 2003-2007 l4 2.4L Petrol Coupe Front Left & Right")
+    # — the year sits BETWEEN Make/Model and the engine/body/side spec. This
+    # pattern doesn't fit the year-first or year-last regexes above, so without
+    # this third pattern the row falls through to the "; "-join fallback and
+    # the buyer sees a single comma dump instead of per-vehicle lines. Fix:
+    # capture Make/Model (before-year) + year + spec (after-year), reassemble
+    # as "<Make/Model> <spec> (<year>)" — the same final shape as the other
+    # two patterns so downstream rendering stays uniform. Acura/Honda Accord
+    # steering-knuckle regression Sept 2026.
+    yr_re_mid = re.compile(r"^(.+?)\s*\(?(?:(\d{4})\s*[-–—]\s*(\d{2,4})|(\d{4}))\)?\s+(.+?)\s*$")
     parsed = []
     for row in safe:
         m_front = yr_re.match(row)
-        m = m_front or yr_re_back.match(row)
+        m_back = yr_re_back.match(row) if not m_front else None
+        m_mid = yr_re_mid.match(row) if not m_front and not m_back else None
+        m = m_front or m_back or m_mid
         if not m:
             parsed.append({"ok": False, "raw": row})
             continue
@@ -654,7 +667,7 @@ def _format_fitment(rows):
                 y2_raw = m.group(2)
                 y2 = int(y2_raw) if len(y2_raw) == 4 else 2000 + int(y2_raw)
             body = m.group(4).strip()
-        else:
+        elif m_back:
             if m.group(4):
                 y1 = y2 = int(m.group(4))
             else:
@@ -662,6 +675,18 @@ def _format_fitment(rows):
                 y2_raw = m.group(3)
                 y2 = int(y2_raw) if len(y2_raw) == 4 else 2000 + int(y2_raw)
             body = m.group(1).strip()
+        else:
+            # middle-year: group(1) = Make/Model, group(2..3) = year-range
+            # or group(4) = single year, group(5) = spec (engine/body/side).
+            # Reassemble so Make/Model stays at the front of the final
+            # "<body> (<year>)" output.
+            if m.group(4):
+                y1 = y2 = int(m.group(4))
+            else:
+                y1 = int(m.group(2))
+                y2_raw = m.group(3)
+                y2 = int(y2_raw) if len(y2_raw) == 4 else 2000 + int(y2_raw)
+            body = (m.group(1) + " " + m.group(5)).strip()
         parsed.append({
             "ok": True,
             "year_start": y1, "year_end": y2,
@@ -722,9 +747,40 @@ def extract_pkg_fitment(pkg_text: str) -> list:
         line = re.sub(r"[;,\s]+$", "", line)
         if not line:
             continue
+        # Pull Make/Model from the BEFORE-year segment of the cue line. PkgText
+        # format is universally "Fit for <Make> <Model> <year> <spec>", so the
+        # capword run before the year range is the Make/Model. We deliberately
+        # IGNORE capwords after the year (those are spec words -- "Petrol",
+        # "Coupe", "Front", "Left", "Right", ...).
+        # Acura TSX / Honda Accord steering-knuckle regression Sept 2026: when
+        # we just fed the cue line to fitment_lines(), it stripped everything
+        # before the year range, losing the Make/Model. Mirrored in
+        # lib/listing.js (search "Acura/Honda Accord steering-knuckle
+        # regression").
+        y_cue = _FIT_YEAR_RE.search(line)
+        if y_cue:
+            before = line[: y_cue.start()].strip()
+            mm_words = [
+                w for w in re.split(r"\s+", before)
+                if re.match(r"^[A-Z][A-Za-z0-9-]+$", w)
+            ][:3]
+            make_model = " ".join(mm_words)
+        else:
+            make_model = ""
         cleaned = fitment_lines(line)
         if cleaned:
             for row in cleaned:
+                # If the row lost the Make/Model during prose split (Acura/
+                # Honda Accord steering-knuckle regression Sept 2026), prepend
+                # it.
+                if make_model and make_model.lower() not in row.lower():
+                    yi = _FIT_YEAR_RE.search(row)
+                    if yi:
+                        _push(
+                            f"{make_model} {row[yi.start():yi.end()]}{row[yi.end():]}"
+                        )
+                        continue
+                # Legacy bare-year recovery path.
                 if not re.search(r"\b[A-Z][A-Za-z0-9-]+\b", row):
                     y = _FIT_YEAR_RE.search(line)
                     if y:
@@ -1036,32 +1092,121 @@ def verify_output(pkg_text: str, title: str, llm_text: str) -> dict:
 # ---------- HTML 描述（确定性代码生成，6 段结构对齐 eBay ActiveContent 政策） ----------
 def build_html(title: str, fitment: str, bullets: list, desc: str,
                specs: list, pkg_includes: list) -> str:
+    # Premium, eBay-compliant listing HTML (no JS / no external links /
+    # inline <style> / responsive). Built deterministically from real engine
+    # fields — never from model-invented marketing prose (hallucination red line).
+    # Mirrors lib/listing.js::buildHtml.
     esc = html_mod.escape
-    parts = ['<div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;color:#1a1a1a;line-height:1.6">']
-    parts.append("  <h2>" + esc(title) + "</h2>")
+
+    def spec_val(rx):
+        for k, v in (specs or []):
+            if rx.search(k or ""):
+                return v
+        return ""
+
+    # Subtitle from real specifics (Placement / Material / Finish / Fitment Type).
+    sub_parts = []
+    for key in ["Placement on Vehicle", "Material", "Surface Finish", "Fitment Type"]:
+        v = spec_val(re.compile(key, re.I))
+        if v and not re.search(r"does not apply", v, re.I):
+            sub_parts.append(v)
+        if len(sub_parts) >= 3:
+            break
+    subtitle = " | ".join(sub_parts) if sub_parts else "Direct Replacement Part"
+
+    # Badges: derived from real data + one seller promise (no part-number claims).
+    badges = []
+    if fitment and fitment != "-":
+        badges.append("\u2699\uFE0F OE Spec Fitment")
+    pk_qty = spec_val(re.compile(r"package quantity", re.I))
+    is_pair = (
+        len(pkg_includes or []) >= 2
+        or re.search(r"\bpair\b|2[-\s]?pc|2x|\bset\b", title or "", re.I) is not None
+        or re.search(r"\bpair\b|2[-\s]?pc|2x", pk_qty or "", re.I) is not None
+    )
+    if is_pair:
+        badges.append("\U0001F4E6 Pair (Left + Right)")
+    warranty = spec_val(re.compile(r"warranty", re.I))
+    if warranty and not re.search(r"does not apply", warranty, re.I):
+        badges.append("\U0001F6E1\uFE0F " + warranty)
+    badges.append("\U0001F69A Fast & Free Shipping")
+
+    # Fitment rows -> <li> with Make/Model bolded at the front.
+    fit_rows = [s.strip() for s in (fitment or "").split("\n") if s.strip()]
+
+    def bold_make_model(line):
+        m = re.match(r"^([A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,1})", line)
+        if not m:
+            return esc(line)
+        lead = m.group(1)
+        if re.match(
+            r"^(L4|V6|V8|Front|Rear|Left|Right|Driver|Passenger|Petrol|Diesel|Coupe|Sedan|Hatchback|Convertible|Wagon|SUV|Truck)$",
+            lead, re.I):
+            return esc(line)
+        return "<strong>" + esc(lead) + "</strong>" + esc(line[len(lead):])
+
+    STYLE = r""".ebay-container{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#222;line-height:1.6;max-width:1000px;margin:0 auto;padding:15px;background-color:#f8f9fa}
+.ebay-card{background:#fff;border:1px solid #e1e4e8;border-radius:8px;padding:20px;margin-bottom:20px;box-shadow:0 2px 5px rgba(0,0,0,.03)}
+.ebay-header{background:linear-gradient(135deg,#0b2545,#134074);color:#fff;padding:25px 20px;border-radius:8px;text-align:center;margin-bottom:20px}
+.ebay-header h1{margin:0;font-size:22px;font-weight:700;letter-spacing:.5px}
+.ebay-header p{margin:8px 0 0;font-size:14px;color:#8da9c4}
+.section-title{font-size:18px;font-weight:700;color:#0b2545;border-bottom:2px solid #134074;padding-bottom:8px;margin:0 0 15px;display:flex;align-items:center}
+.section-hint{font-size:13px;color:#718096;margin:-5px 0 10px}
+.ebay-lead{font-size:14px;color:#4a5568;margin:0}
+.badge-container{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:15px}
+.badge{background:#eef4fb;color:#134074;padding:6px 12px;border-radius:20px;font-size:13px;font-weight:600;border:1px solid #c8d9ed}
+.spec-table{width:100%;border-collapse:collapse;margin-top:10px}
+.spec-table td{padding:10px 12px;border-bottom:1px solid #edf2f7;font-size:14px}
+.spec-table td.label{font-weight:600;color:#4a5568;width:35%;background:#f7fafc}
+.fitment-list{list-style:none;padding:0;margin:0}
+.fitment-list li{padding:8px 12px;border-bottom:1px solid #edf2f7;font-size:14px;display:flex;align-items:center}
+.fitment-list li:nth-child(even){background:#f8fafc}
+.fitment-list li::before{content:"\2713";color:#38a169;font-weight:700;margin-right:10px}
+.feature-list{padding-left:20px;margin:0}
+.feature-list li{margin-bottom:10px;font-size:14px}
+.pkg-list{list-style:none;padding:0;margin:0}
+.pkg-list li{padding:8px 12px;border-bottom:1px solid #edf2f7;font-size:14px}
+.pkg-list li::before{content:"\2022";color:#134074;font-weight:700;margin-right:10px}
+.note-box{background:#fffaf0;border-left:4px solid #dd6b20;padding:15px;border-radius:0 6px 6px 0;font-size:13px;color:#7b341e;margin-bottom:20px}
+@media (max-width:600px){.ebay-header h1{font-size:18px}.spec-table td.label{width:45%}}"""
+
+    parts = []
+    parts.append('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
+    parts.append("<style>" + STYLE + "</style>")
+    parts.append('<div class="ebay-container">')
+    parts.append('  <div class="ebay-header"><h1>' + esc(title or "Product Listing") + "</h1><p>" + esc(subtitle) + "</p></div>")
+    parts.append('  <div class="ebay-card">')
+    parts.append('    <div class="badge-container">' + "".join('<span class="badge">' + esc(b) + "</span>" for b in badges) + "</div>")
     if desc:
-        parts.append("  <p>" + esc(desc) + "</p>")
-    parts.append("  <h3>Fitment / Compatibility</h3>")
-    # Fitment lines are separated by \n (_format_fitment emits one line per
-    # base-model cluster); convert to <br> so each cluster renders on its
-    # own row instead of an inline wall of text.
-    parts.append("  <p>" + esc(fitment or "-").replace("\n", "<br>") + "</p>")
+        parts.append('    <p class="ebay-lead">' + esc(desc) + "</p>")
+    parts.append("  </div>")
+    if fit_rows:
+        parts.append('  <div class="ebay-card">')
+        parts.append('    <h2 class="section-title">Vehicle Compatibility</h2>')
+        parts.append("    <p class=\"section-hint\">Please confirm your vehicle's year, model and engine before ordering.</p>")
+        parts.append('    <ul class="fitment-list">' + "".join("<li>" + bold_make_model(r) + "</li>" for r in fit_rows) + "</ul>")
+        parts.append("  </div>")
     if specs:
         rows = "\n".join(
-            "      <tr><td style=\"padding:6px 10px;border-bottom:1px solid #ddd\"><strong>" + esc(k) +
-            "</strong></td><td style=\"padding:6px 10px;border-bottom:1px solid #ddd\">" + esc(v) + "</td></tr>"
+            '      <tr><td class="label">' + esc(k) + "</td><td>" + esc(v) + "</td></tr>"
             for k, v in specs)
-        parts.append("  <h3>Specifications</h3>")
-        parts.append('  <table style="width:100%;border-collapse:collapse">\n' + rows + "\n  </table>")
+        parts.append('  <div class="ebay-card">')
+        parts.append('    <h2 class="section-title">Product Specifications</h2>')
+        parts.append('    <table class="spec-table">\n' + rows + "\n    </table>")
+        parts.append("  </div>")
     if bullets:
-        lis = "\n".join("    <li>" + esc(b) + "</li>" for b in bullets[:5])
-        parts.append("  <h3>Features</h3>")
-        parts.append("  <ul>\n" + lis + "\n  </ul>")
+        lis = "".join("<li>" + esc(b) + "</li>" for b in bullets[:5])
+        parts.append('  <div class="ebay-card">')
+        parts.append('    <h2 class="section-title">Why Choose This Part?</h2>')
+        parts.append('    <ul class="feature-list">' + lis + "</ul>")
+        parts.append("  </div>")
     if pkg_includes:
-        inc = "\n".join("    <li>" + esc(i) + "</li>" for i in pkg_includes[:6])
-        parts.append("  <h3>Package Includes</h3>")
-        parts.append("  <ul>\n" + inc + "\n  </ul>")
-    parts.append("  <p><em>Note: Professional installation is recommended. Please verify all part numbers against your vehicle before ordering.</em></p>")
+        inc = "".join("<li>" + esc(i) + "</li>" for i in pkg_includes[:6])
+        parts.append('  <div class="ebay-card">')
+        parts.append('    <h2 class="section-title">Package Includes</h2>')
+        parts.append('    <ul class="pkg-list">' + inc + "</ul>")
+        parts.append("  </div>")
+    parts.append('  <div class="note-box"><strong>\u26A0\uFE0F Professional Installation Recommended:</strong> Suspension and steering components are vital to driving safety. A certified technician installation and a post-installation wheel alignment are strongly recommended. Please match the original OE part number before ordering.</div>')
     parts.append("</div>")
     return "\n".join(parts)
 
@@ -1118,6 +1263,36 @@ def api_generate(pkg_text: str) -> dict:
     fit_list = fitment_lines(fit_block)
     if not fit_list:
         fit_list = extract_pkg_fitment(pkg_text)
+    # P0 fix (Acura/Honda Accord steering-knuckle regression Sept 2026):
+    # when the model writes year-prefixed fitment rows but DROPS the Make/Model
+    # (its "smart-dedup" treats the same Make/Model across rows as redundant
+    # context), the buyer's most important info is gone. We detect this by
+    # checking whether the section's rows mention ANY Make/Model candidate
+    # that appears in pkgText's own fitment block (the pkgText's Make/Model
+    # list is the ground truth -- if the model's section missed all of them,
+    # the section is Make/Model-poor). When detected, fallback to pkgText.
+    # Mirrored in lib/listing.js (search "P0 fix (Acura/Honda Accord").
+    if fit_list:
+        pkg_fit = extract_pkg_fitment(pkg_text)
+        if pkg_fit:
+            _spec_words = {
+                "L4", "V6", "V8", "I4", "I5", "I6",
+                "Front", "Rear", "Left", "Right",
+                "Driver", "Passenger",
+                "Petrol", "Diesel", "Hybrid",
+                "Coupe", "Sedan", "Hatchback", "Convertible",
+                "Wagon", "SUV", "Truck",
+            }
+            _pkg_models = set()
+            for _row in pkg_fit:
+                for _w in re.findall(r"\b[A-Z][A-Za-z0-9-]+", _row):
+                    if _w not in _spec_words:
+                        _pkg_models.add(_w)
+            _section_has = any(
+                any(m in row for m in _pkg_models) for row in fit_list
+            )
+            if _pkg_models and not _section_has:
+                fit_list = pkg_fit
     fitment = (fit_list[0] if len(fit_list) == 1 else _format_fitment(fit_list)) if fit_list else "-"
     bullets = [b for b in list_items(sec.get(4, "")) if not _looks_like_echo(b) and not _is_category_path(b)][:5]
     if not bullets:
