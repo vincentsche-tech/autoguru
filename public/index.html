@@ -99,6 +99,16 @@ button:hover{background:var(--acc2)}
 .copy{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:4px 14px;font-size:12px;font-weight:700;cursor:pointer;margin-left:auto}
 .copy:hover{background:var(--acc2)}
 .verify{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;font-size:14px;margin-top:18px}
+.up{margin-top:18px;border:1px solid var(--line);border-radius:14px;padding:26px 24px;background:var(--card);text-align:center}
+.up-badge{display:inline-block;background:#eff6ff;color:var(--acc2);font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:4px 12px;border-radius:999px}
+.up-title{font-size:21px;margin:12px 0 6px;color:var(--ink)}
+.up-sub{color:var(--mut);font-size:15px;margin:0 0 16px}
+.up-feats{list-style:none;padding:0;margin:0 auto 18px;max-width:330px;text-align:left}
+.up-feats li{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:15px;color:var(--ink);border-bottom:1px solid var(--line)}
+.up-feats li:last-child{border-bottom:0}
+.up-cta{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;font-weight:700;font-size:16px;padding:13px 30px;border-radius:10px}
+.up-cta:hover{background:var(--acc2)}
+.up-fine{font-size:13px;color:var(--mut);margin:14px 0 0}
 .verify ul{margin:8px 0 0;padding-left:20px}
 .verify li{margin:4px 0}
 .bullets{padding-left:22px;font-size:14px}
@@ -164,6 +174,18 @@ footer a:hover{color:var(--acc)}
     </div>
 
     <div id="err" class="verify" hidden style="background:#fef2f2;border-color:#fecaca"><strong id="err-title">Engine error</strong><p id="errmsg" style="margin-top:6px"></p></div>
+    <div id="upgrade" class="up" hidden>
+      <span class="up-badge">Daily limit reached</span>
+      <h3 class="up-title">You've used all 3 free listings today</h3>
+      <p class="up-sub">Quota resets at 00:00 UTC. Keep listing without the wait — upgrade to Pro:</p>
+      <ul class="up-feats">
+        <li><span class="pill ok">30</span> listings / day — 10× the free tier</li>
+        <li><span class="pill ok">&#10003;</span> Batch CSV processing</li>
+        <li><span class="pill ok">&#10003;</span> Priority generation queue</li>
+      </ul>
+      <a id="up-cta" class="up-cta" href="#">Upgrade to Pro — $9/mo</a>
+      <p class="up-fine">Cancel anytime · Same hallucination-free engine, just unlimited.</p>
+    </div>
 
     <div id="report" class="report" hidden>
       <div class="rep-head"><span class="rep-title">Listing Report</span><span class="ver" id="r-meta">ListKraft Engine v2.8</span></div>
@@ -281,12 +303,21 @@ footer a:hover{color:var(--acc)}
   var steps=['Engine calculating…','Analyzing fitment data…','Optimizing titles…','Building Item Specifics…','Rendering compliant HTML…'];
   if(!btn)return;
 
+  var PRO_URL='#'; // TODO: paste your Stripe / PayPal / checkout URL here
   function el(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
   function showErr(m,title){errbox.hidden=false;document.getElementById('err-title').textContent=title||'Engine error';document.getElementById('errmsg').textContent=m;errbox.scrollIntoView({behavior:'smooth',block:'center'});}
+  function showUpgrade(){
+    errbox.hidden=true;
+    var up=document.getElementById('upgrade');
+    document.getElementById('up-cta').setAttribute('href',PRO_URL);
+    up.hidden=false;
+    up.scrollIntoView({behavior:'smooth',block:'center'});
+  }
+  document.getElementById('up-cta').addEventListener('click',function(){gtag('event','upgrade_click',{from:'daily_limit'});});
 
   btn.addEventListener('click',function(){
     var txt=document.getElementById('pkg').value.trim();
-    errbox.hidden=true;
+    errbox.hidden=true;var up=document.getElementById('upgrade');if(up)up.hidden=true;
     if(txt.length<40){showErr('Paste the whole supplier data package first — title, part numbers, application list, description.');return;}
     gtag('event','generate_click',{input_chars:txt.length});
     btn.disabled=true;report.hidden=true;calc.hidden=false;bar.style.width='0';
@@ -304,7 +335,7 @@ footer a:hover{color:var(--acc)}
         gtag('event','generate_success',{model:j.model||'unknown',seconds:j.seconds||0,titles_count:(j.titles||[]).length});
         setTimeout(function(){calc.hidden=true;btn.disabled=false;report.hidden=false;report.scrollIntoView({behavior:'smooth',block:'start'});},300);
       })
-      .catch(function(e){done=true;calc.hidden=true;btn.disabled=false;gtag('event','generate_error',{http_status:e.st||0,error_kind:e.st===429?'daily_limit':'engine'});showErr(e.message||'Engine error',e.st===429?'Daily limit reached':null);});
+      .catch(function(e){done=true;calc.hidden=true;btn.disabled=false;gtag('event','generate_error',{http_status:e.st||0,error_kind:e.st===429?'daily_limit':'engine'});if(e.st===429){showUpgrade();}else{showErr(e.message||'Engine error');}});
   });
 
   function render(j){
